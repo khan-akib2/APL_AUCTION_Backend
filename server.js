@@ -36,6 +36,7 @@ const allowedOrigins = [
   process.env.FRONTEND_URL || 'http://localhost:3000',
   'http://localhost:3000',
   'https://apl-auction-psi.vercel.app',
+  'https://apl-auction-frontend.vercel.app',
   /\.vercel\.app$/,
 ];
 

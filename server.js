@@ -9,7 +9,7 @@ import authRoutes from './routes/auth.js';
 import playerRoutes from './routes/players.js';
 import teamRoutes from './routes/teams.js';
 import teamsPublicRoutes from './routes/teamsPublic.js';
-import auctionRoutes from './routes/auction.js';
+import auctionRoutes, { recoverPendingFinalizations } from './routes/auction.js';
 import summaryRoutes from './routes/summary.js';
 import uploadRoutes from './routes/upload.js';
 import userRoutes from './routes/users.js';
@@ -84,6 +84,7 @@ io.on('connection', (socket) => {
 
 // MongoDB
 await connectDB();
+await recoverPendingFinalizations();
 
 // Timer is disabled — admin manually controls auction end
 

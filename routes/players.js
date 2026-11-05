@@ -5,12 +5,20 @@ import { authMiddleware, adminOnly } from '../lib/auth.js';
 
 const router = Router();
 
+function getSportFilter(req) {
+  const sport = req.query.sport || req.body?.sport || 'cricket';
+  return sport === 'football'
+    ? { sport: 'football' }
+    : { $or: [{ sport: 'cricket' }, { sport: { $exists: false } }] };
+}
+
 // GET /api/players/public — no auth required, shows all players with basic info
-router.get('/public', async (_req, res) => {
+router.get('/public', async (req, res) => {
   try {
-    const players = await Player.find()
+    const sportFilter = getSportFilter(req);
+    const players = await Player.find(sportFilter)
       .populate('soldTo', 'name')
-      .select('name photo skills basePrice status soldTo soldPrice')
+      .select('name photo skills basePrice status soldTo soldPrice sport')
       .sort({ name: 1 });
     res.json({ players });
   } catch (e) {
@@ -24,9 +32,15 @@ router.get('/', authMiddleware, async (req, res) => {
     const { page = 1, pageSize = 10, status } = req.query;
     const p = Math.max(1, parseInt(page));
     const ps = Math.min(500, parseInt(pageSize));
+    const sportFilter = getSportFilter(req);
 
-    let query = req.user.role === 'captain' ? { status: { $in: ['available', 'resold'] } } : {};
-    if (status && status !== 'all') query = { ...query, status };
+    let query = { ...sportFilter };
+    if (req.user.role === 'captain') {
+      query.status = { $in: ['available', 'resold'] };
+    }
+    if (status && status !== 'all') {
+      query.status = status;
+    }
 
     const total = await Player.countDocuments(query);
     const players = await Player.find(query)
@@ -58,7 +72,8 @@ router.get('/', authMiddleware, async (req, res) => {
 // POST /api/players
 router.post('/', authMiddleware, adminOnly, async (req, res) => {
   try {
-    const player = await Player.create(req.body);
+    const sport = req.body.sport === 'football' ? 'football' : 'cricket';
+    const player = await Player.create({ ...req.body, sport });
     res.status(201).json({ player });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -76,19 +91,33 @@ router.put('/:id', authMiddleware, adminOnly, async (req, res) => {
   }
 });
 
-// DELETE /api/players/all — delete all players
+// DELETE /api/players/all — delete all players for given sport
 router.delete('/all', authMiddleware, adminOnly, async (req, res) => {
   try {
-    // Close all active auction sessions
-    await AuctionSession.updateMany({ status: 'active' }, { status: 'closed', endedAt: new Date() });
-    // Remove all players from teams
+    const sport = req.query.sport === 'football' ? 'football' : 'cricket';
+    const sportFilter = getSportFilter(req);
+
+    // Close all active auction sessions for this sport
+    await AuctionSession.updateMany(
+      { status: { $in: ['active', 'finalizing'] }, ...sportFilter },
+      { status: 'closed', endedAt: new Date() }
+    );
+
+    // Remove players from teams of this sport
     const Team = (await import('../models/Team.js')).default;
-    await Team.updateMany({}, { $set: { players: [], playerCount: 0, pointsSpent: 0, budget: 1000 } });
-    // Delete all players
-    await Player.deleteMany({});
+    await Team.updateMany(
+      sportFilter,
+      { $set: { players: [], playerCount: 0, pointsSpent: 0, budget: 1000 } }
+    );
+
+    // Delete players for this sport only
+    await Player.deleteMany(sportFilter);
+
     const io = global._io;
-    if (io) io.emit('players:updated');
-    res.json({ success: true });
+    if (io) {
+      io.emit('players:updated', { sport });
+    }
+    res.json({ success: true, sport });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -111,7 +140,7 @@ router.delete('/:id', authMiddleware, adminOnly, async (req, res) => {
 
     // Close any active auction session for this player
     await AuctionSession.updateMany(
-      { playerId: req.params.id, status: 'active' },
+      { playerId: req.params.id, status: { $in: ['active', 'finalizing'] } },
       { status: 'closed', endedAt: new Date() }
     );
 
@@ -119,7 +148,7 @@ router.delete('/:id', authMiddleware, adminOnly, async (req, res) => {
 
     // Notify all clients
     const io = global._io;
-    if (io) io.emit('players:updated');
+    if (io) io.emit('players:updated', { sport: player.sport || 'cricket' });
 
     res.json({ success: true });
   } catch (e) {

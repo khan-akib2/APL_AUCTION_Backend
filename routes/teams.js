@@ -8,28 +8,38 @@ import { authMiddleware, adminOnly } from '../lib/auth.js';
 
 const router = Router();
 
+function getSportFilter(req) {
+  const sport = req.query.sport || req.body?.sport || 'cricket';
+  return sport === 'football'
+    ? { sport: 'football' }
+    : { $or: [{ sport: 'cricket' }, { sport: { $exists: false } }] };
+}
+
 // GET /api/teams
 router.get('/', authMiddleware, async (req, res) => {
   try {
+    const sportFilter = getSportFilter(req);
     if (req.user.role === 'captain') {
-      // Always fetch fresh teamId from DB, not from JWT (which may be stale)
       const freshUser = await User.findById(req.user.id);
       const teamId = freshUser?.teamId;
       if (!teamId) return res.json({ teams: [] });
-      const team = await Team.findById(teamId).populate('players').populate('captainId', 'name email');
+      const team = await Team.findOne({ _id: teamId, ...sportFilter }).populate('players').populate('captainId', 'name email');
       return res.json({ teams: team ? [team] : [] });
     }
-    const teams = await Team.find().populate('players').populate('captainId', 'name email');
+    const teams = await Team.find(sportFilter).populate('players').populate('captainId', 'name email');
     res.json({ teams });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-// POST /api/teams/reset-all — Reset all teams, budgets, squads, and players to starting state
+// POST /api/teams/reset-all — Reset all teams, budgets, squads, and players for given sport
 router.post('/reset-all', authMiddleware, adminOnly, async (req, res) => {
   try {
-    const teams = await Team.find();
+    const sport = req.query.sport === 'football' ? 'football' : 'cricket';
+    const sportFilter = getSportFilter(req);
+    const teams = await Team.find(sportFilter);
+    const teamIds = teams.map(t => t._id);
 
     // 1. Reset each team back to its starting budget and clear squad/tokens
     for (const team of teams) {
@@ -44,9 +54,9 @@ router.post('/reset-all', authMiddleware, adminOnly, async (req, res) => {
       });
     }
 
-    // 2. Reset all players back to available
+    // 2. Reset all players belonging to this sport back to available
     await Player.updateMany(
-      {},
+      sportFilter,
       {
         status: 'available',
         soldTo: null,
@@ -55,27 +65,28 @@ router.post('/reset-all', authMiddleware, adminOnly, async (req, res) => {
       }
     );
 
-    // 3. Close any active or finalizing auction session
+    // 3. Close active/finalizing auction session for this sport
     await AuctionSession.updateMany(
-      { status: { $in: ['active', 'finalizing'] } },
+      { status: { $in: ['active', 'finalizing'] }, ...sportFilter },
       { status: 'closed' }
     );
 
     // 4. Log the reset event
     await AuctionLog.create({
+      sport,
       action: 'teams_reset_all',
-      details: `All ${teams.length} teams reset to starting state by admin`,
+      details: `All ${teams.length} ${sport} teams reset to starting state by admin`,
     });
 
-    // 5. Notify all connected sockets (Admin, Captains, Audience)
+    // 5. Notify all connected sockets
     const io = global._io;
     if (io) {
-      io.emit('auction:resale', {});
-      io.emit('teams:reset', { message: 'All teams have been reset to starting state' });
+      io.emit('auction:resale', { sport });
+      io.emit('teams:reset', { sport, message: `All ${sport} teams have been reset to starting state` });
     }
 
-    const updatedTeams = await Team.find().populate('players').populate('captainId', 'name email');
-    res.json({ success: true, message: 'All teams reset to starting state', teams: updatedTeams });
+    const updatedTeams = await Team.find(sportFilter).populate('players').populate('captainId', 'name email');
+    res.json({ success: true, message: `All ${sport} teams reset to starting state`, teams: updatedTeams });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -115,14 +126,15 @@ router.post('/:id/reset', authMiddleware, adminOnly, async (req, res) => {
     // 3. Log event
     await AuctionLog.create({
       teamId: team._id,
+      sport: team.sport || 'cricket',
       action: 'team_reset',
       details: `Team ${team.name} reset to starting state`,
     });
 
     const io = global._io;
     if (io) {
-      io.emit('auction:resale', {});
-      io.emit('teams:reset', { teamId: team._id.toString() });
+      io.emit('auction:resale', { sport: team.sport });
+      io.emit('teams:reset', { sport: team.sport, teamId: team._id.toString() });
     }
 
     res.json({ success: true, team: updatedTeam });
@@ -131,7 +143,7 @@ router.post('/:id/reset', authMiddleware, adminOnly, async (req, res) => {
   }
 });
 
-// POST /api/teams/:id/add-token — admin gives 1 reveal token to a team
+// POST /api/teams/:id/add-token
 router.post('/:id/add-token', authMiddleware, adminOnly, async (req, res) => {
   try {
     const team = await Team.findByIdAndUpdate(
@@ -149,7 +161,6 @@ router.post('/:id/add-token', authMiddleware, adminOnly, async (req, res) => {
 });
 
 // POST /api/teams/:teamId/remove-player/:playerId
-// Admin removes a specific player from a team — player goes back to resold queue
 router.post('/:teamId/remove-player/:playerId', authMiddleware, adminOnly, async (req, res) => {
   try {
     const { teamId, playerId } = req.params;
@@ -163,19 +174,17 @@ router.post('/:teamId/remove-player/:playerId', authMiddleware, adminOnly, async
 
     const refund = player.soldPrice || 0;
 
-    // Remove player from team, refund budget
     await Team.findByIdAndUpdate(teamId, {
       $pull: { players: player._id },
       $inc: { budget: refund, pointsSpent: -refund, playerCount: -1 },
     });
 
-    // Mark player as resold
     await Player.findByIdAndUpdate(playerId, { status: 'resold', soldTo: null, soldPrice: null });
 
-    await AuctionLog.create({ playerId, teamId, action: 'resale_triggered', amount: refund });
+    await AuctionLog.create({ playerId, teamId, sport: team.sport || 'cricket', action: 'resale_triggered', amount: refund });
 
     const io = global._io;
-    if (io) io.emit('auction:resale', { player, team });
+    if (io) io.emit('auction:resale', { player, team, sport: team.sport });
 
     res.json({ success: true, refund });
   } catch (e) {
@@ -186,9 +195,9 @@ router.post('/:teamId/remove-player/:playerId', authMiddleware, adminOnly, async
 // POST /api/teams
 router.post('/', authMiddleware, adminOnly, async (req, res) => {
   try {
+    const sport = req.body.sport === 'football' ? 'football' : 'cricket';
     const initialBudget = req.body.budget || 1000;
-    const team = await Team.create({ ...req.body, initialBudget });
-    // Assign teamId to captain if provided
+    const team = await Team.create({ ...req.body, sport, initialBudget });
     if (req.body.captainId) {
       await User.findByIdAndUpdate(req.body.captainId, { teamId: team._id });
     }
@@ -206,21 +215,16 @@ router.put('/:id', authMiddleware, adminOnly, async (req, res) => {
 
     const team = await Team.findByIdAndUpdate(req.params.id, req.body, { returnDocument: 'after' });
 
-    // Sync User.teamId when captainId changes — compare as strings to avoid ObjectId mismatch
     const oldCaptain = oldTeam.captainId?.toString() || null;
     const newCaptain = req.body.captainId?.toString() || null;
 
     if (oldCaptain !== newCaptain) {
-      // Remove teamId from old captain
       if (oldCaptain) await User.findByIdAndUpdate(oldCaptain, { teamId: null });
-      // Assign teamId to new captain
       if (newCaptain) await User.findByIdAndUpdate(newCaptain, { teamId: team._id });
     } else if (newCaptain) {
-      // Always ensure the captain has the correct teamId even if captainId didn't change
       await User.findByIdAndUpdate(newCaptain, { teamId: team._id });
     }
 
-    // Notify the assigned captain via socket to reload their team
     const io = global._io;
     if (io && newCaptain) io.emit('team:assigned', { captainId: newCaptain, teamId: team._id.toString() });
 
@@ -236,7 +240,6 @@ router.delete('/:id', authMiddleware, adminOnly, async (req, res) => {
     const team = await Team.findById(req.params.id);
     if (!team) return res.status(404).json({ error: 'Team not found' });
 
-    // Reset all players sold to this team back to available
     await Player.updateMany(
       { soldTo: req.params.id },
       { status: 'available', soldTo: null, soldPrice: null }

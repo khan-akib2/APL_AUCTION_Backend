@@ -4,9 +4,17 @@ import { authMiddleware, adminOnly } from '../lib/auth.js';
 
 const router = Router();
 
-router.get('/', authMiddleware, adminOnly, async (_req, res) => {
+function getSportFilter(req) {
+  const sport = req.query.sport || 'cricket';
+  return sport === 'football'
+    ? { sport: 'football' }
+    : { $or: [{ sport: 'cricket' }, { sport: { $exists: false } }] };
+}
+
+router.get('/', authMiddleware, adminOnly, async (req, res) => {
   try {
-    const teams = await Team.find()
+    const sportFilter = getSportFilter(req);
+    const teams = await Team.find(sportFilter)
       .populate({ path: 'players', populate: { path: 'soldTo', select: 'name' } })
       .populate('captainId', 'name email');
     res.json({ teams });
@@ -16,11 +24,12 @@ router.get('/', authMiddleware, adminOnly, async (_req, res) => {
 });
 
 // Public summary — no auth, used by results page
-router.get('/public', async (_req, res) => {
+router.get('/public', async (req, res) => {
   try {
-    const teams = await Team.find()
+    const sportFilter = getSportFilter(req);
+    const teams = await Team.find(sportFilter)
       .populate({ path: 'players', select: 'name skills soldPrice photo' })
-      .select('name budget pointsSpent playerCount players')
+      .select('name budget pointsSpent playerCount players sport')
       .sort({ pointsSpent: -1 });
     res.json({ teams });
   } catch (e) {

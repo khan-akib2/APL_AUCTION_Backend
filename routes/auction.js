@@ -8,14 +8,20 @@ import { authMiddleware, adminOnly, captainOnly } from '../lib/auth.js';
 const router = Router();
 const getIO = () => global._io;
 
+function getSportFilter(req) {
+  const sport = req.query.sport || req.body?.sport || 'cricket';
+  return sport === 'football'
+    ? { sport: 'football' }
+    : { $or: [{ sport: 'cricket' }, { sport: { $exists: false } }] };
+}
+
 // Sanitize a player object for non-admin/non-owner views
 // For mystery players: hide name, photo, skills — show only clues
 function sanitizePlayerForPublic(player, revealedTeamId = null) {
   if (!player || !player.isMysteryPlayer) return player;
   const p = player.toObject ? player.toObject() : { ...player };
   const isRevealed = revealedTeamId && p.revealedTo?.some(id => id.toString() === revealedTeamId.toString());
-  if (isRevealed) return p; // Full data for teams that used reveal token
-  // Return masked version
+  if (isRevealed) return p;
   return {
     ...p,
     name: '???',
@@ -38,7 +44,6 @@ function clearTimer() {
 }
 
 function startTimer(_session) {
-  // Timer disabled — auction runs until admin manually marks sold/unsold
   clearTimer();
 }
 
@@ -70,11 +75,11 @@ export async function commitFinalization(sessionId) {
   );
 
   if (!session) {
-    // Already finalized or not in finalizing state (idempotency protection)
     return null;
   }
 
   const io = getIO();
+  const sport = session.sport || 'cricket';
 
   if (session.finalizingAction === 'unsold') {
     const player = await Player.findByIdAndUpdate(
@@ -84,11 +89,12 @@ export async function commitFinalization(sessionId) {
     );
     await AuctionLog.create({
       playerId: session.playerId,
+      sport,
       action: 'unsold',
       amount: 0,
     });
     if (io) {
-      io.emit('auction:unsold', { player, session });
+      io.emit('auction:unsold', { player, session, sport });
     }
     return { player, session };
   }
@@ -129,24 +135,26 @@ export async function commitFinalization(sessionId) {
   await AuctionLog.create({
     playerId: session.playerId,
     teamId: winningTeamId,
+    sport,
     action: 'sold',
     amount: winningPrice,
   });
 
   if (io) {
-    // Emit full player data upon sale
-    io.emit('auction:sold', { player, team, session });
+    io.emit('auction:sold', { player, team, session, sport });
   }
 
   return { player, team, session };
 }
 
-// Server restart recovery for any in-flight finalization
+// Server startup recovery: find any sessions left in 'finalizing' state
 export async function recoverPendingFinalizations() {
   try {
     const pendingSessions = await AuctionSession.find({ status: 'finalizing' });
+    if (!pendingSessions.length) return;
+    console.log(`[Auction Recovery] Found ${pendingSessions.length} session(s) pending finalization on startup.`);
     for (const session of pendingSessions) {
-      const elapsed = Date.now() - new Date(session.finalizingAt || session.updatedAt).getTime();
+      const elapsed = session.finalizingAt ? (Date.now() - new Date(session.finalizingAt).getTime()) : 3000;
       const remaining = Math.max(0, 3000 - elapsed);
       console.log(`[Auction Recovery] Session ${session._id} pending finalization (action: ${session.finalizingAction}). Committing in ${remaining}ms`);
       if (remaining === 0) {
@@ -163,7 +171,8 @@ export async function recoverPendingFinalizations() {
 // GET /api/auction/active
 router.get('/active', authMiddleware, async (req, res) => {
   try {
-    const session = await AuctionSession.findOne({ status: { $in: ['active', 'finalizing'] } })
+    const sportFilter = getSportFilter(req);
+    const session = await AuctionSession.findOne({ status: { $in: ['active', 'finalizing'] }, ...sportFilter })
       .populate('playerId').populate('currentHighestBidder', 'name');
     if (session && !session.playerId) {
       session.status = 'closed'; session.endedAt = new Date(); await session.save();
@@ -175,7 +184,6 @@ router.get('/active', authMiddleware, async (req, res) => {
     if (req.user.role === 'admin') {
       sessionObj.playerId = sanitizePlayerForAdmin(session.playerId);
     } else {
-      // Captain: check if their team has a reveal token used on this player
       const teamId = req.user.teamId || null;
       sessionObj.playerId = sanitizePlayerForPublic(session.playerId, teamId);
     }
@@ -184,9 +192,10 @@ router.get('/active', authMiddleware, async (req, res) => {
 });
 
 // GET /api/auction/active-public
-router.get('/active-public', async (_req, res) => {
+router.get('/active-public', async (req, res) => {
   try {
-    const session = await AuctionSession.findOne({ status: { $in: ['active', 'finalizing'] } })
+    const sportFilter = getSportFilter(req);
+    const session = await AuctionSession.findOne({ status: { $in: ['active', 'finalizing'] }, ...sportFilter })
       .populate('playerId').populate('currentHighestBidder', 'name');
     if (!session) return res.json({ session: null });
     const sessionObj = session.toObject();
@@ -199,20 +208,24 @@ router.get('/active-public', async (_req, res) => {
 router.post('/start', authMiddleware, adminOnly, async (req, res) => {
   try {
     const { playerId, timerDuration = 30 } = req.body;
-    await AuctionSession.updateMany({ status: { $in: ['active', 'finalizing'] } }, { status: 'closed', endedAt: new Date() });
-    clearTimer();
     const player = await Player.findById(playerId);
     if (!player) return res.status(404).json({ error: 'Player not found' });
     if (!['available', 'resold', 'unsold'].includes(player.status))
       return res.status(400).json({ error: 'Player not available' });
 
+    const sport = req.body.sport || player.sport || 'cricket';
+    const sportFilter = sport === 'football' ? { sport: 'football' } : { $or: [{ sport: 'cricket' }, { sport: { $exists: false } }] };
+
+    await AuctionSession.updateMany({ status: { $in: ['active', 'finalizing'] }, ...sportFilter }, { status: 'closed', endedAt: new Date() });
+    clearTimer();
+
     const session = await AuctionSession.create({
       playerId, currentBid: player.basePrice, status: 'active',
       timerDuration, timerRemaining: timerDuration, timerPaused: false,
+      sport,
     });
     const io = getIO();
-    // Emit full player to admin, masked to everyone else
-    if (io) io.emit('auction:start', { session, player: sanitizePlayerForPublic(player, null) });
+    if (io) io.emit('auction:start', { session, player: sanitizePlayerForPublic(player, null), sport });
     startTimer(session);
     res.status(201).json({ session, player });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -243,7 +256,6 @@ router.post('/bid', authMiddleware, captainOnly, async (req, res) => {
       return res.status(400).json({ error: 'No active auction accepting bids' });
     }
 
-    // Verify player is not already sold
     const player = await Player.findById(session.playerId);
     if (!player) return res.status(404).json({ error: 'Player not found' });
     if (player.status === 'sold') {
@@ -252,11 +264,6 @@ router.post('/bid', authMiddleware, captainOnly, async (req, res) => {
 
     const team = await Team.findById(req.user.teamId);
     if (!team) return res.status(404).json({ error: 'Team not found' });
-    if (team.playerCount >= 7) return res.status(400).json({ error: 'Squad is full (7 players max)' });
-
-    // Captain cannot bid if already leading
-    if (session.currentHighestBidder?.toString() === team._id.toString())
-      return res.status(400).json({ error: 'You are already leading — wait for another team to bid' });
 
     const newBid = session.currentBid + amount;
     if (team.budget < newBid) return res.status(400).json({ error: 'Insufficient budget' });
@@ -287,7 +294,6 @@ router.post('/bid', authMiddleware, captainOnly, async (req, res) => {
     );
 
     if (!updatedSession) {
-      // Re-check why update failed: was SOLD initiated concurrently?
       const checkSession = await AuctionSession.findById(sessionId);
       if (checkSession?.status === 'finalizing') {
         return res.status(409).json({ error: 'Bidding is locked — player sale is being finalized' });
@@ -298,9 +304,11 @@ router.post('/bid', authMiddleware, captainOnly, async (req, res) => {
       return res.status(409).json({ error: 'Another bid was placed at the same moment. Please try again.' });
     }
 
+    const sport = updatedSession.sport || 'cricket';
     await AuctionLog.create({
       playerId: updatedSession.playerId,
       teamId: team._id,
+      sport,
       action: 'bid',
       amount: newBid,
     });
@@ -312,8 +320,9 @@ router.post('/bid', authMiddleware, captainOnly, async (req, res) => {
         currentBid: newBid,
         bidderTeamName: team.name,
         bidderTeamId: team._id,
+        sport,
       });
-      io.emit('auction:timer', { remaining: updatedSession.timerRemaining, paused: false });
+      io.emit('auction:timer', { remaining: updatedSession.timerRemaining, paused: false, sport });
     }
     res.json({ session: updatedSession });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -335,11 +344,10 @@ router.post('/sold', authMiddleware, adminOnly, async (req, res) => {
       return res.status(400).json({ error: 'No active auction to mark sold' });
     }
     if (!session.currentHighestBidder) {
-      return res.status(400).json({ error: 'No bids placed' });
+      return res.status(400).json({ error: 'No bids placed. Use unsold instead.' });
     }
 
     const now = new Date();
-    // Atomically transition status from active to finalizing and freeze winner & winning amount
     const finalizingSession = await AuctionSession.findOneAndUpdate(
       { _id: sessionId, status: 'active' },
       {
@@ -360,7 +368,7 @@ router.post('/sold', authMiddleware, adminOnly, async (req, res) => {
 
     clearTimer();
 
-    // Broadcast finalizing state to all clients immediately via Socket.IO
+    const sport = finalizingSession.sport || 'cricket';
     const io = getIO();
     if (io) {
       io.emit('auction:finalizing', {
@@ -372,10 +380,10 @@ router.post('/sold', authMiddleware, adminOnly, async (req, res) => {
         leaderTeamName: finalizingSession.currentHighestBidderName,
         winningBid: finalizingSession.currentBid,
         playerId: finalizingSession.playerId?._id || finalizingSession.playerId,
+        sport,
       });
     }
 
-    // Schedule authoritative server-side completion in 3 seconds (3000ms)
     scheduleCommitFinalization(finalizingSession._id, 3000);
 
     res.json({
@@ -388,7 +396,6 @@ router.post('/sold', authMiddleware, adminOnly, async (req, res) => {
 });
 
 // POST /api/auction/unsold - Admin initiates UNSOLD.
-// Atomically transitions OPEN -> FINALIZING immediately, locks bidding, and schedules 3-second completion.
 router.post('/unsold', authMiddleware, adminOnly, async (req, res) => {
   try {
     const { sessionId } = req.body;
@@ -422,6 +429,7 @@ router.post('/unsold', authMiddleware, adminOnly, async (req, res) => {
 
     clearTimer();
 
+    const sport = finalizingSession.sport || 'cricket';
     const io = getIO();
     if (io) {
       io.emit('auction:finalizing', {
@@ -429,7 +437,7 @@ router.post('/unsold', authMiddleware, adminOnly, async (req, res) => {
         action: 'unsold',
         countdown: 3,
         finalizingAt: now,
-        playerId: finalizingSession.playerId?._id || finalizingSession.playerId,
+        sport,
       });
     }
 
@@ -444,60 +452,46 @@ router.post('/unsold', authMiddleware, adminOnly, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/auction/timer/pause
-router.post('/timer/pause', authMiddleware, adminOnly, async (req, res) => {
+// GET /api/auction/history
+router.get('/history', authMiddleware, async (req, res) => {
+  try {
+    const sportFilter = getSportFilter(req);
+    const sessions = await AuctionSession.find({ status: 'closed', ...sportFilter })
+      .populate('playerId').populate('currentHighestBidder', 'name')
+      .sort({ endedAt: -1 }).limit(20);
+    res.json({ sessions });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/auction/pause
+router.post('/pause', authMiddleware, adminOnly, async (_req, res) => {
   try {
     const session = await AuctionSession.findOne({ status: 'active' });
-    if (!session) return res.status(400).json({ error: 'No active auction' });
-    session.timerPaused = true; await session.save();
+    if (!session) return res.status(404).json({ error: 'No active auction' });
+    session.timerPaused = true;
+    await session.save();
+    clearTimer();
     const io = getIO();
-    if (io) io.emit('auction:timer', { remaining: session.timerRemaining, paused: true });
-    res.json({ remaining: session.timerRemaining, paused: true });
+    if (io) io.emit('auction:timer', { remaining: session.timerRemaining, paused: true, sport: session.sport || 'cricket' });
+    res.json({ session });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/auction/timer/resume
-router.post('/timer/resume', authMiddleware, adminOnly, async (req, res) => {
+// POST /api/auction/resume
+router.post('/resume', authMiddleware, adminOnly, async (_req, res) => {
   try {
     const session = await AuctionSession.findOne({ status: 'active' });
-    if (!session) return res.status(400).json({ error: 'No active auction' });
-    session.timerPaused = false; await session.save();
-    // Restart interval if not running
-    if (!_timerInterval) startTimer(session);
+    if (!session) return res.status(404).json({ error: 'No active auction' });
+    session.timerPaused = false;
+    await session.save();
+    startTimer(session);
     const io = getIO();
-    if (io) io.emit('auction:timer', { remaining: session.timerRemaining, paused: false });
-    res.json({ remaining: session.timerRemaining, paused: false });
+    if (io) io.emit('auction:timer', { remaining: session.timerRemaining, paused: false, sport: session.sport || 'cricket' });
+    res.json({ session });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/auction/resale
-router.post('/resale', authMiddleware, adminOnly, async (req, res) => {
-  try {
-    const { playerId } = req.body;
-    if (!playerId) return res.status(400).json({ error: 'playerId required' });
-
-    const player = await Player.findById(playerId);
-    if (!player) return res.status(404).json({ error: 'Player not found' });
-    if (player.status !== 'sold' || !player.soldTo) return res.status(400).json({ error: 'Player is not sold' });
-
-    const teamId = player.soldTo;
-    const refund = player.soldPrice || 0;
-
-    await Player.findByIdAndUpdate(playerId, { status: 'resold', soldTo: null, soldPrice: null });
-    await Team.findByIdAndUpdate(teamId, {
-      $pull: { players: player._id },
-      $inc: { budget: refund, pointsSpent: -refund, playerCount: -1 },
-    });
-    await AuctionLog.create({ playerId, teamId, action: 'resale_triggered', amount: refund });
-
-    const updatedTeam = await Team.findById(teamId).populate('players');
-    const io = getIO();
-    if (io) io.emit('auction:resale', { player, team: updatedTeam });
-    res.json({ player, team: updatedTeam });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-// POST /api/auction/reveal — captain uses a reveal token to see mystery player details
+// POST /api/auction/reveal
 router.post('/reveal', authMiddleware, captainOnly, async (req, res) => {
   try {
     const { playerId } = req.body;
@@ -511,7 +505,6 @@ router.post('/reveal', authMiddleware, captainOnly, async (req, res) => {
     const team = await Team.findById(req.user.teamId);
     if (!team) return res.status(404).json({ error: 'Team not found' });
 
-    // Check if already revealed to this team (no token cost)
     const alreadyRevealed = player.revealedTo?.some(id => id.toString() === team._id.toString());
     if (alreadyRevealed) {
       return res.json({ player, tokensLeft: team.revealTokens });
@@ -519,7 +512,6 @@ router.post('/reveal', authMiddleware, captainOnly, async (req, res) => {
 
     if (team.revealTokens <= 0) return res.status(400).json({ error: 'No reveal tokens left' });
 
-    // Deduct token and mark player as revealed to this team
     await Team.findByIdAndUpdate(team._id, { $inc: { revealTokens: -1 } });
     await Player.findByIdAndUpdate(playerId, { $addToSet: { revealedTo: team._id } });
 
@@ -534,18 +526,21 @@ router.get('/log', authMiddleware, adminOnly, async (req, res) => {
     const { page = 1, pageSize = 500 } = req.query;
     const p = Math.max(1, parseInt(page));
     const ps = Math.min(500, parseInt(pageSize));
-    const total = await AuctionLog.countDocuments();
-    const logs = await AuctionLog.find()
+    const sportFilter = getSportFilter(req);
+
+    const total = await AuctionLog.countDocuments(sportFilter);
+    const logs = await AuctionLog.find(sportFilter)
       .populate('playerId', 'name').populate('teamId', 'name')
       .sort({ timestamp: -1 }).skip((p - 1) * ps).limit(ps);
     res.json({ logs, total, page: p, pageSize: ps });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// DELETE /api/auction/log — clear all logs
+// DELETE /api/auction/log — clear all logs for this sport
 router.delete('/log', authMiddleware, adminOnly, async (req, res) => {
   try {
-    await AuctionLog.deleteMany({});
+    const sportFilter = getSportFilter(req);
+    await AuctionLog.deleteMany(sportFilter);
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

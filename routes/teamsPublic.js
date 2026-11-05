@@ -3,10 +3,15 @@ import Team from '../models/Team.js';
 
 const router = Router();
 
-router.get('/', async (_req, res) => {
+router.get('/', async (req, res) => {
   try {
-    const teams = await Team.find()
-      .select('name logo budget pointsSpent playerCount players')
+    const sport = req.query.sport || 'cricket';
+    const sportFilter = sport === 'football'
+      ? { sport: 'football' }
+      : { $or: [{ sport: 'cricket' }, { sport: { $exists: false } }] };
+
+    const teams = await Team.find(sportFilter)
+      .select('name logo budget pointsSpent playerCount players sport')
       .populate('players', 'name skills soldPrice photo isMysteryPlayer')
       .sort({ name: 1 });
     res.json({ teams });

@@ -9,6 +9,7 @@ const BidSchema = new mongoose.Schema({
 
 const AuctionSessionSchema = new mongoose.Schema({
   playerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Player', required: true },
+  sport: { type: String, enum: ['cricket', 'football'], default: 'cricket', index: true },
   startedAt: { type: Date, default: Date.now },
   endedAt: { type: Date, default: null },
   currentBid: { type: Number, default: 0 },

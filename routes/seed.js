@@ -18,7 +18,15 @@ const PLAYER_NAMES = [
   'Yogesh Bhatt','Zaheer Hussain','Arun Menon','Balaji Krishnan','Chetan Solanki','Devraj Yadav','Eknath Patil','Faisal Siddiqui',
 ];
 
-// GET /api/seed?secret=<SEED_SECRET>
+const FOOTBALL_TEAM_NAMES = ['Red Dragons FC', 'Blue Sharks FC', 'Golden Tigers', 'Silver Cobras'];
+const FOOTBALL_SKILLS = ['Forward', 'Midfielder', 'Defender', 'Goalkeeper', 'Winger'];
+const FOOTBALL_PLAYER_NAMES = [
+  'Leo Martinez', 'Kylian Vance', 'Erling Stone', 'Kevin De Ross', 'Luka Modric Jr',
+  'Virgil Van Cole', 'Thibaut Courtois Jr', 'Neymar Santos', 'Vinicius Sterling', 'Jude Bellingham Jr',
+  'Bruno Silva', 'Bukayo Saka Jr', 'Rodri Hernandez', 'Alisson Becker Jr', 'Declan Rice Jr', 'Son Heung-min Jr'
+];
+
+// GET /api/seed?secret=<SEED_SECRET> — Cricket seed
 router.get('/', async (req, res) => {
   const secret = req.query.secret;
   if (!process.env.SEED_SECRET || secret !== process.env.SEED_SECRET) {
@@ -41,7 +49,7 @@ router.get('/', async (req, res) => {
         passwordHash: captainHash,
         role: 'captain',
       });
-      const team = await Team.create({ name: TEAM_NAMES[i], captainId: captain._id });
+      const team = await Team.create({ name: TEAM_NAMES[i], captainId: captain._id, sport: 'cricket', initialBudget: 1000, budget: 1000 });
       await User.findByIdAndUpdate(captain._id, { teamId: team._id });
     }
 
@@ -50,17 +58,56 @@ router.get('/', async (req, res) => {
       skills: [SKILLS[i % SKILLS.length], SKILLS[(i + 1) % SKILLS.length]],
       basePrice: 20,
       status: 'available',
+      sport: 'cricket',
     }));
     await Player.insertMany(playerDocs);
 
-    res.json({ message: 'Seeded successfully', teams: 8, players: 56 });
+    res.json({ message: 'Seeded successfully', teams: 8, players: 56, sport: 'cricket' });
   } catch (e) {
     console.error('SEED ERROR:', e);
     res.status(500).json({ error: e.message });
   }
 });
 
-// GET /api/seed/fix-team-assignments?secret=<SEED_SECRET> — repair all captain→team links
+// GET /api/seed/football?secret=<SEED_SECRET> — Seed football teams and players without touching cricket
+router.get('/football', async (req, res) => {
+  const secret = req.query.secret;
+  if (!process.env.SEED_SECRET || secret !== process.env.SEED_SECRET) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  try {
+    await Team.deleteMany({ sport: 'football' });
+    await Player.deleteMany({ sport: 'football' });
+
+    const teams = [];
+    for (let i = 0; i < FOOTBALL_TEAM_NAMES.length; i++) {
+      const team = await Team.create({
+        name: FOOTBALL_TEAM_NAMES[i],
+        sport: 'football',
+        budget: 1000,
+        initialBudget: 1000,
+      });
+      teams.push(team);
+    }
+
+    const playerDocs = FOOTBALL_PLAYER_NAMES.map((name, i) => ({
+      name,
+      skills: [FOOTBALL_SKILLS[i % FOOTBALL_SKILLS.length]],
+      basePrice: 25,
+      status: 'available',
+      sport: 'football',
+    }));
+    await Player.insertMany(playerDocs);
+
+    res.json({ message: 'Football seeded successfully', teams: teams.length, players: playerDocs.length, sport: 'football' });
+  } catch (e) {
+    console.error('FOOTBALL SEED ERROR:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/seed/fix-team-assignments?secret=<SEED_SECRET>
 router.get('/fix-team-assignments', async (req, res) => {
   const secret = req.query.secret;
   if (!process.env.SEED_SECRET || secret !== process.env.SEED_SECRET) {
@@ -74,92 +121,6 @@ router.get('/fix-team-assignments', async (req, res) => {
       fixed++;
     }
     res.json({ success: true, fixed });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// GET /api/seed/reset-captain?secret=<SEED_SECRET>&name=affan&pass=newpass
-router.get('/reset-captain', async (req, res) => {
-  const { secret, name, pass } = req.query;
-  if (!process.env.SEED_SECRET || secret !== process.env.SEED_SECRET) {
-    return res.status(403).json({ error: 'Forbidden' });
-  }
-  if (!name || !pass) return res.status(400).json({ error: 'name and pass required' });
-  try {
-    const user = await User.findOneAndUpdate(
-      { name: new RegExp(name, 'i'), role: 'captain' },
-      { $set: { passwordHash: await bcrypt.hash(pass, 10) } },
-      { returnDocument: 'after' }
-    );
-    if (!user) return res.status(404).json({ error: 'Captain not found' });
-    res.json({ success: true, name: user.name, email: user.email });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// GET /api/seed/fix-shams?secret=<SEED_SECRET> — one-click update Shams credentials
-router.get('/fix-shams', async (req, res) => {
-  const secret = req.query.secret;
-  if (!process.env.SEED_SECRET || secret !== process.env.SEED_SECRET) {
-    return res.status(403).json({ error: 'Forbidden' });
-  }
-  try {
-    const result = await User.findOneAndUpdate(
-      { $or: [{ name: /shams/i }, { email: /shams/i }, { email: 'zaidacchwa@gmail.com' }] },
-      { $set: { name: 'Zaid', email: 'zaidacchwa@gmail.com', passwordHash: await bcrypt.hash('zaidacchwa@123!', 10) } },
-      { returnDocument: 'after' }
-    );
-    if (!result) return res.status(404).json({ error: 'User not found' });
-    res.json({ success: true, name: result.name, email: result.email });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// GET /api/seed/fix-budgets?secret=<SEED_SECRET> — set all team budgets to 500
-router.get('/fix-budgets', async (req, res) => {
-  const secret = req.query.secret;
-  if (!process.env.SEED_SECRET || secret !== process.env.SEED_SECRET) {
-    return res.status(403).json({ error: 'Forbidden' });
-  }
-  try {
-    const result = await Team.updateMany({}, { $set: { budget: 500 } });
-    res.json({ success: true, updated: result.modifiedCount });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// GET /api/seed/fix-players?secret=<SEED_SECRET> — bulk update all existing players base price
-router.get('/fix-players', async (req, res) => {
-  const secret = req.query.secret;
-  if (!process.env.SEED_SECRET || secret !== process.env.SEED_SECRET) {
-    return res.status(403).json({ error: 'Forbidden' });
-  }
-  try {
-    const result = await Player.updateMany({}, { $set: { basePrice: 20 } });
-    res.json({ success: true, updated: result.modifiedCount });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// POST /api/seed/update-user?secret=<SEED_SECRET> — update a user's email/password by current email
-router.post('/update-user', async (req, res) => {
-  const secret = req.query.secret;
-  if (!process.env.SEED_SECRET || secret !== process.env.SEED_SECRET) {
-    return res.status(403).json({ error: 'Forbidden' });
-  }
-  try {
-    const { currentEmail, newEmail, newPassword } = req.body;
-    const user = await User.findOne({ email: currentEmail });
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    if (newEmail) user.email = newEmail;
-    if (newPassword) user.passwordHash = await bcrypt.hash(newPassword, 10);
-    await user.save();
-    res.json({ success: true, email: user.email });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

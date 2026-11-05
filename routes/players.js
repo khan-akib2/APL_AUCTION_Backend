@@ -5,6 +5,31 @@ import { authMiddleware, adminOnly } from '../lib/auth.js';
 
 const router = Router();
 
+const VALID_FOOTBALL_SKILLS = ['Forward', 'Midfielder', 'Defender', 'Goalkeeper'];
+const CRICKET_TO_FOOTBALL_MAP = {
+  'batsman': 'Forward',
+  'bowler': 'Midfielder',
+  'all-rounder': 'Defender',
+  'allrounder': 'Defender',
+  'wicketkeeper': 'Goalkeeper',
+  'wicket-keeper': 'Goalkeeper',
+  'fielder': 'Defender',
+};
+
+function normalizeFootballSkills(skills = []) {
+  const normalized = [];
+  for (const s of skills) {
+    if (VALID_FOOTBALL_SKILLS.includes(s)) {
+      normalized.push(s);
+    } else {
+      const mapped = CRICKET_TO_FOOTBALL_MAP[s.toLowerCase().trim()];
+      normalized.push(mapped || 'Forward');
+    }
+  }
+  const unique = Array.from(new Set(normalized));
+  return unique.length ? unique : ['Forward'];
+}
+
 function getSportFilter(req) {
   const sport = req.query.sport || req.body?.sport || 'cricket';
   return sport === 'football'
@@ -49,18 +74,30 @@ router.get('/', authMiddleware, async (req, res) => {
       .skip((p - 1) * ps)
       .limit(ps);
 
-    // For captains: mask mystery player details (except ones their team revealed)
-    let result = players;
+    // Auto-normalize football skills if any legacy or mismatched records exist
+    const isFootball = req.query.sport === 'football' || req.body?.sport === 'football';
+
+    let result = players.map(pl => {
+      const obj = pl.toObject();
+      if ((isFootball || obj.sport === 'football') && obj.skills?.length) {
+        obj.skills = normalizeFootballSkills(obj.skills);
+      }
+      return obj;
+    });
+
     if (req.user.role === 'captain' && req.user.teamId) {
-      result = players.map(pl => {
-        if (!pl.isMysteryPlayer) return pl.toObject();
-        const isRevealed = pl.revealedTo?.some(id => id.toString() === req.user.teamId.toString());
-        if (isRevealed) return pl.toObject();
-        const obj = pl.toObject();
-        return { ...obj, name: '???', photo: obj.mysteryConfig?.blurredPhoto || '', skills: obj.mysteryConfig?.roleHint ? [obj.mysteryConfig.roleHint] : [], _isMasked: true };
+      result = result.map(obj => {
+        if (!obj.isMysteryPlayer) return obj;
+        const isRevealed = obj.revealedTo?.some(id => id.toString() === req.user.teamId.toString());
+        if (isRevealed) return obj;
+        return {
+          ...obj,
+          name: '???',
+          photo: obj.mysteryConfig?.blurredPhoto || '',
+          skills: obj.mysteryConfig?.roleHint ? [obj.mysteryConfig.roleHint] : [],
+          _isMasked: true,
+        };
       });
-    } else {
-      result = players.map(pl => pl.toObject());
     }
 
     res.json({ players: result, total, page: p, pageSize: ps });
@@ -73,7 +110,11 @@ router.get('/', authMiddleware, async (req, res) => {
 router.post('/', authMiddleware, adminOnly, async (req, res) => {
   try {
     const sport = req.body.sport === 'football' ? 'football' : 'cricket';
-    const player = await Player.create({ ...req.body, sport });
+    let skills = req.body.skills || [];
+    if (sport === 'football') {
+      skills = normalizeFootballSkills(skills);
+    }
+    const player = await Player.create({ ...req.body, skills, sport });
     res.status(201).json({ player });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -83,7 +124,11 @@ router.post('/', authMiddleware, adminOnly, async (req, res) => {
 // PUT /api/players/:id
 router.put('/:id', authMiddleware, adminOnly, async (req, res) => {
   try {
-    const player = await Player.findByIdAndUpdate(req.params.id, req.body, { returnDocument: 'after' });
+    const update = { ...req.body };
+    if (update.sport === 'football' && update.skills) {
+      update.skills = normalizeFootballSkills(update.skills);
+    }
+    const player = await Player.findByIdAndUpdate(req.params.id, update, { returnDocument: 'after' });
     if (!player) return res.status(404).json({ error: 'Player not found' });
     res.json({ player });
   } catch (e) {
@@ -128,28 +173,26 @@ router.delete('/:id', authMiddleware, adminOnly, async (req, res) => {
   try {
     const player = await Player.findById(req.params.id);
     if (!player) return res.status(404).json({ error: 'Player not found' });
+    const sport = player.sport || 'cricket';
 
-    // Remove from team if sold
-    if (player.soldTo) {
+    // Check if player is currently in an active or finalizing session
+    const activeSession = await AuctionSession.findOne({ playerId: req.params.id, status: { $in: ['active', 'finalizing'] } });
+    if (activeSession) {
+      return res.status(400).json({ error: 'Cannot delete player while they are live in auction' });
+    }
+
+    // If player was sold to a team, remove from team and refund
+    if (player.soldTo && player.soldPrice) {
       const Team = (await import('../models/Team.js')).default;
       await Team.findByIdAndUpdate(player.soldTo, {
         $pull: { players: player._id },
-        $inc: { budget: player.soldPrice || 0, pointsSpent: -(player.soldPrice || 0), playerCount: -1 },
+        $inc: { pointsSpent: -player.soldPrice, budget: player.soldPrice, playerCount: -1 },
       });
     }
 
-    // Close any active auction session for this player
-    await AuctionSession.updateMany(
-      { playerId: req.params.id, status: { $in: ['active', 'finalizing'] } },
-      { status: 'closed', endedAt: new Date() }
-    );
-
     await Player.findByIdAndDelete(req.params.id);
-
-    // Notify all clients
     const io = global._io;
-    if (io) io.emit('players:updated', { sport: player.sport || 'cricket' });
-
+    if (io) io.emit('players:updated', { sport });
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: e.message });

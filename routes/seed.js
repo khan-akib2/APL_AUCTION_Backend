@@ -19,7 +19,7 @@ const PLAYER_NAMES = [
 ];
 
 const FOOTBALL_TEAM_NAMES = ['Red Dragons FC', 'Blue Sharks FC', 'Golden Tigers', 'Silver Cobras'];
-const FOOTBALL_SKILLS = ['Forward', 'Midfielder', 'Defender', 'Goalkeeper', 'Winger'];
+const FOOTBALL_SKILLS = ['Forward', 'Midfielder', 'Defender', 'Goalkeeper'];
 const FOOTBALL_PLAYER_NAMES = [
   'Leo Martinez', 'Kylian Vance', 'Erling Stone', 'Kevin De Ross', 'Luka Modric Jr',
   'Virgil Van Cole', 'Thibaut Courtois Jr', 'Neymar Santos', 'Vinicius Sterling', 'Jude Bellingham Jr',
@@ -34,12 +34,13 @@ router.get('/', async (req, res) => {
   }
 
   try {
-    await User.deleteMany({});
-    await Team.deleteMany({});
-    await Player.deleteMany({});
+    await User.deleteMany({ role: 'admin' });
+    await User.deleteMany({ $or: [{ sport: 'cricket' }, { sport: { $exists: false } }, { sport: null }] });
+    await Team.deleteMany({ $or: [{ sport: 'cricket' }, { sport: { $exists: false } }, { sport: null }] });
+    await Player.deleteMany({ $or: [{ sport: 'cricket' }, { sport: { $exists: false } }, { sport: null }] });
 
     const adminHash = await bcrypt.hash('7946', 10);
-    await User.create({ name: 'Admin', email: 'aaddy@gmail.com', passwordHash: adminHash, role: 'admin' });
+    await User.create({ name: 'Admin', email: 'aaddy@gmail.com', passwordHash: adminHash, role: 'admin', sport: 'all' });
 
     for (let i = 0; i < 8; i++) {
       const captainHash = await bcrypt.hash(`captain${i + 1}`, 10);
@@ -48,6 +49,7 @@ router.get('/', async (req, res) => {
         email: `captain${i + 1}@nit.com`,
         passwordHash: captainHash,
         role: 'captain',
+        sport: 'cricket',
       });
       const team = await Team.create({ name: TEAM_NAMES[i], captainId: captain._id, sport: 'cricket', initialBudget: 1000, budget: 1000 });
       await User.findByIdAndUpdate(captain._id, { teamId: team._id });
@@ -69,7 +71,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET /api/seed/football?secret=<SEED_SECRET> — Seed football teams and players without touching cricket
+// GET /api/seed/football?secret=<SEED_SECRET> — Seed football teams and captains without touching cricket
 router.get('/football', async (req, res) => {
   const secret = req.query.secret;
   if (!process.env.SEED_SECRET || secret !== process.env.SEED_SECRET) {
@@ -77,17 +79,30 @@ router.get('/football', async (req, res) => {
   }
 
   try {
+    await User.deleteMany({ role: 'captain', sport: 'football' });
     await Team.deleteMany({ sport: 'football' });
     await Player.deleteMany({ sport: 'football' });
 
     const teams = [];
     for (let i = 0; i < FOOTBALL_TEAM_NAMES.length; i++) {
+      const captainHash = await bcrypt.hash(`fbcaptain${i + 1}`, 10);
+      const captain = await User.create({
+        name: `Captain ${FOOTBALL_TEAM_NAMES[i]}`,
+        email: `fbcaptain${i + 1}@nit.com`,
+        passwordHash: captainHash,
+        role: 'captain',
+        sport: 'football',
+      });
+
       const team = await Team.create({
         name: FOOTBALL_TEAM_NAMES[i],
+        captainId: captain._id,
         sport: 'football',
         budget: 1000,
         initialBudget: 1000,
       });
+
+      await User.findByIdAndUpdate(captain._id, { teamId: team._id });
       teams.push(team);
     }
 
@@ -100,28 +115,15 @@ router.get('/football', async (req, res) => {
     }));
     await Player.insertMany(playerDocs);
 
-    res.json({ message: 'Football seeded successfully', teams: teams.length, players: playerDocs.length, sport: 'football' });
+    res.json({
+      message: 'Football seeded successfully',
+      teams: teams.length,
+      captains: teams.length,
+      players: playerDocs.length,
+      sport: 'football',
+    });
   } catch (e) {
     console.error('FOOTBALL SEED ERROR:', e);
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// GET /api/seed/fix-team-assignments?secret=<SEED_SECRET>
-router.get('/fix-team-assignments', async (req, res) => {
-  const secret = req.query.secret;
-  if (!process.env.SEED_SECRET || secret !== process.env.SEED_SECRET) {
-    return res.status(403).json({ error: 'Forbidden' });
-  }
-  try {
-    const teams = await Team.find({ captainId: { $ne: null } });
-    let fixed = 0;
-    for (const team of teams) {
-      await User.findByIdAndUpdate(team.captainId, { teamId: team._id });
-      fixed++;
-    }
-    res.json({ success: true, fixed });
-  } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });

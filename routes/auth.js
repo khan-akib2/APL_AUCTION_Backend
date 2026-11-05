@@ -17,12 +17,13 @@ router.post('/login', async (req, res) => {
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
 
-    const token = signToken({ id: user._id, role: user.role, teamId: user.teamId?._id || null });
+    const userSport = user.sport || user.teamId?.sport || 'cricket';
+    const token = signToken({ id: user._id, role: user.role, teamId: user.teamId?._id || null, sport: userSport });
     await User.findByIdAndUpdate(user._id, { activeToken: token });
 
     res.json({
       token,
-      user: { id: user._id, name: user.name, email: user.email, role: user.role, teamId: user.teamId },
+      user: { id: user._id, name: user.name, email: user.email, role: user.role, sport: userSport, teamId: user.teamId },
     });
   } catch (e) {
     res.status(500).json({ error: e.message });

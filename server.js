@@ -74,18 +74,37 @@ global._io = io;
 
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
-  // Default to sport:cricket room for backward compatibility
+  // Default to cricket rooms for backward compatibility
   socket.join('sport:cricket');
+  socket.join('auction:cricket');
 
   io.emit('viewers:count', io.engine.clientsCount);
 
   // Client requests sport room isolation
-  socket.on('join:sport', (sport) => {
-    const target = sport === 'football' ? 'football' : 'cricket';
+  const handleJoinSport = (sportInput) => {
+    let target = 'cricket';
+    if (typeof sportInput === 'string') {
+      target = sportInput.toLowerCase().includes('football') ? 'football' : 'cricket';
+    } else if (typeof sportInput === 'object' && sportInput !== null) {
+      const val = (sportInput.sport || sportInput.room || '').toLowerCase();
+      target = val.includes('football') ? 'football' : 'cricket';
+    }
     socket.leave('sport:cricket');
     socket.leave('sport:football');
+    socket.leave('auction:cricket');
+    socket.leave('auction:football');
     socket.join(`sport:${target}`);
-    console.log(`Socket ${socket.id} joined room sport:${target}`);
+    socket.join(`auction:${target}`);
+    console.log(`Socket ${socket.id} joined rooms sport:${target} and auction:${target}`);
+  };
+
+  socket.on('join:sport', handleJoinSport);
+  socket.on('joinRoom', handleJoinSport);
+  socket.on('join', handleJoinSport);
+
+  socket.on('leaveRoom', (data) => {
+    const val = (typeof data === 'object' ? (data?.room || data?.sport) : data) || '';
+    if (val) socket.leave(val);
   });
 
   socket.on('disconnect', () => {

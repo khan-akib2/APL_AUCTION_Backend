@@ -39,7 +39,6 @@ router.post('/reset-all', authMiddleware, adminOnly, async (req, res) => {
     const sport = req.query.sport === 'football' ? 'football' : 'cricket';
     const sportFilter = getSportFilter(req);
     const teams = await Team.find(sportFilter);
-    const teamIds = teams.map(t => t._id);
 
     // 1. Reset each team back to its starting budget and clear squad/tokens
     for (const team of teams) {

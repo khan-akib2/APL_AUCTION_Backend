@@ -3,6 +3,7 @@ import AuctionSession from '../models/AuctionSession.js';
 import AuctionLog from '../models/AuctionLog.js';
 import Player from '../models/Player.js';
 import Team from '../models/Team.js';
+import User from '../models/User.js';
 import { authMiddleware, adminOnly, captainOnly } from '../lib/auth.js';
 
 const router = Router();
@@ -15,14 +16,65 @@ function getSportFilter(req) {
     : { $or: [{ sport: 'cricket' }, { sport: { $exists: false } }, { sport: null }] };
 }
 
-// Strictly emit auction events to the sport-specific Socket.IO room and sport-tagged event
+// Strictly emit auction events to the sport-specific Socket.IO room and sport-tagged event,
+// plus legacy aliases so all client views (Admin, Captain, Audience) update synchronously.
 export function emitSportEvent(sport, eventName, payload) {
   const io = getIO();
   if (!io) return;
   const target = sport === 'football' ? 'football' : 'cricket';
   const data = { ...payload, sport: target };
-  io.to(`sport:${target}`).emit(eventName, data);
+
+  // Room broadcasts
+  io.to(`sport:${target}`).to(`auction:${target}`).emit(eventName, data);
+  // Sport-suffixed global broadcasts
   io.emit(`${eventName}:${target}`, data);
+  // Global broadcast
+  io.emit(eventName, data);
+
+  // Cross-emit legacy aliases
+  if (eventName === 'auction:start') {
+    const legacy = { ...data, session: payload.session, player: payload.player };
+    io.to(`sport:${target}`).to(`auction:${target}`).emit('playerNominated', legacy);
+    io.emit(`playerNominated:${target}`, legacy);
+    io.emit('playerNominated', legacy);
+  } else if (eventName === 'auction:bid_update') {
+    const legacy = {
+      ...data,
+      amount: payload.currentBid,
+      teamId: payload.bidderTeamId,
+      teamName: payload.bidderTeamName,
+    };
+    io.to(`sport:${target}`).to(`auction:${target}`).emit('bidPlaced', legacy);
+    io.emit(`bidPlaced:${target}`, legacy);
+    io.emit('bidPlaced', legacy);
+  } else if (eventName === 'auction:finalizing') {
+    io.to(`sport:${target}`).to(`auction:${target}`).emit('auctionFinalizing', data);
+    io.emit(`auctionFinalizing:${target}`, data);
+    io.emit('auctionFinalizing', data);
+  } else if (eventName === 'auction:sold') {
+    const legacy = {
+      ...data,
+      player: payload.player,
+      team: payload.team,
+      teamId: payload.team?._id || payload.teamId,
+      teamName: payload.team?.name || payload.teamName,
+      amount: payload.amount ?? payload.session?.currentBid ?? payload.player?.soldPrice,
+    };
+    io.to(`sport:${target}`).to(`auction:${target}`).emit('playerSold', legacy);
+    io.to(`sport:${target}`).to(`auction:${target}`).emit('auctionFinalized', legacy);
+    io.emit(`playerSold:${target}`, legacy);
+    io.emit('playerSold', legacy);
+    io.emit(`auctionFinalized:${target}`, legacy);
+    io.emit('auctionFinalized', legacy);
+  } else if (eventName === 'auction:unsold') {
+    const legacy = { ...data, player: payload.player, session: payload.session };
+    io.to(`sport:${target}`).to(`auction:${target}`).emit('playerUnsold', legacy);
+    io.to(`sport:${target}`).to(`auction:${target}`).emit('auctionFinalized', legacy);
+    io.emit(`playerUnsold:${target}`, legacy);
+    io.emit('playerUnsold', legacy);
+    io.emit(`auctionFinalized:${target}`, legacy);
+    io.emit('auctionFinalized', legacy);
+  }
 }
 
 // Sanitize a player object for non-admin/non-owner views
@@ -100,7 +152,7 @@ export async function commitFinalization(sessionId) {
       action: 'unsold',
       amount: 0,
     });
-    emitSportEvent(sport, 'auction:unsold', { player, session });
+    emitSportEvent(sport, 'auction:unsold', { player, session, amount: 0 });
     return { player, session };
   }
 
@@ -143,7 +195,14 @@ export async function commitFinalization(sessionId) {
     amount: winningPrice,
   });
 
-  emitSportEvent(sport, 'auction:sold', { player, team, session });
+  emitSportEvent(sport, 'auction:sold', {
+    player,
+    team,
+    session,
+    teamId: team?._id,
+    teamName: team?.name,
+    amount: winningPrice,
+  });
 
   return { player, team, session };
 }
@@ -185,7 +244,11 @@ router.get('/active', authMiddleware, async (req, res) => {
     if (req.user.role === 'admin') {
       sessionObj.playerId = sanitizePlayerForAdmin(session.playerId);
     } else {
-      const teamId = req.user.teamId || null;
+      let teamId = req.user.teamId;
+      if (!teamId && req.user.id) {
+        const u = await User.findById(req.user.id);
+        teamId = u?.teamId;
+      }
       sessionObj.playerId = sanitizePlayerForPublic(session.playerId, teamId);
     }
     res.json({ session: sessionObj });
@@ -243,12 +306,15 @@ router.post('/start', authMiddleware, adminOnly, async (req, res) => {
 // POST /api/auction/bid
 router.post('/bid', authMiddleware, captainOnly, async (req, res) => {
   try {
-    const { sessionId, bidAmount = 10 } = req.body;
+    const { sessionId } = req.body;
     if (!sessionId) return res.status(400).json({ error: 'sessionId required' });
-    if (!req.user.teamId) return res.status(400).json({ error: 'No team assigned to your account' });
 
-    const VALID_AMOUNTS = [1, 3, 5, 10];
-    const amount = VALID_AMOUNTS.includes(Number(bidAmount)) ? Number(bidAmount) : 10;
+    let teamId = req.user.teamId || req.body.teamId;
+    if (!teamId && req.user.id) {
+      const dbUser = await User.findById(req.user.id);
+      teamId = dbUser?.teamId;
+    }
+    if (!teamId) return res.status(400).json({ error: 'No team assigned to your account' });
 
     const session = await AuctionSession.findById(sessionId);
     if (!session) return res.status(404).json({ error: 'Auction session not found' });
@@ -263,14 +329,31 @@ router.post('/bid', authMiddleware, captainOnly, async (req, res) => {
       return res.status(400).json({ error: 'No active auction accepting bids' });
     }
 
+    // Determine bid increment
+    let amount = 10;
+    if (req.body.bidAmount !== undefined && [1, 3, 5, 10].includes(Number(req.body.bidAmount))) {
+      amount = Number(req.body.bidAmount);
+    } else if (req.body.amount !== undefined && Number(req.body.amount) > session.currentBid) {
+      const diff = Number(req.body.amount) - session.currentBid;
+      if ([1, 3, 5, 10].includes(diff)) {
+        amount = diff;
+      }
+    }
+
     const player = await Player.findById(session.playerId);
     if (!player) return res.status(404).json({ error: 'Player not found' });
     if (player.status === 'sold') {
       return res.status(409).json({ error: 'Player has already been sold' });
     }
 
-    const team = await Team.findById(req.user.teamId);
+    const team = await Team.findById(teamId);
     if (!team) return res.status(404).json({ error: 'Team not found' });
+
+    // Validate squad capacity
+    const maxSquad = team.teamSize || 7;
+    if ((team.playerCount || team.players?.length || 0) >= maxSquad) {
+      return res.status(400).json({ error: `Squad is full (${maxSquad}/${maxSquad})` });
+    }
 
     // Validate cross-sport integrity: Team, Player, and Auction must match
     const sessionSport = session.sport || 'cricket';
@@ -279,6 +362,11 @@ router.post('/bid', authMiddleware, captainOnly, async (req, res) => {
 
     if (teamSport !== sessionSport || playerSport !== sessionSport) {
       return res.status(403).json({ error: `Team sport (${teamSport}) does not match auction sport (${sessionSport})` });
+    }
+
+    // Leader lock: cannot bid against own team
+    if (session.currentHighestBidder && session.currentHighestBidder.toString() === team._id.toString()) {
+      return res.status(400).json({ error: 'Your team already holds the highest bid' });
     }
 
     const newBid = session.currentBid + amount;
@@ -337,6 +425,63 @@ router.post('/bid', authMiddleware, captainOnly, async (req, res) => {
 
     res.json({ session: updatedSession });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/auction/reveal — captain consumes 1 reveal token to unmask mystery player
+router.post('/reveal', authMiddleware, captainOnly, async (req, res) => {
+  try {
+    const { playerId } = req.body;
+    if (!playerId) return res.status(400).json({ error: 'playerId required' });
+
+    let teamId = req.user.teamId || req.body.teamId;
+    if (!teamId && req.user.id) {
+      const u = await User.findById(req.user.id);
+      teamId = u?.teamId;
+    }
+    if (!teamId) return res.status(400).json({ error: 'No team assigned to your account' });
+
+    const team = await Team.findById(teamId);
+    if (!team) return res.status(404).json({ error: 'Team not found' });
+
+    const player = await Player.findById(playerId);
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+    if (!player.isMysteryPlayer) return res.status(400).json({ error: 'Player is not a mystery player' });
+
+    const alreadyRevealed = player.revealedTo?.some(tId => tId.toString() === team._id.toString());
+    if (alreadyRevealed) {
+      return res.json({ player, tokensLeft: team.revealTokens, alreadyRevealed: true });
+    }
+
+    if ((team.revealTokens || 0) < 1) {
+      return res.status(400).json({ error: 'No reveal tokens remaining' });
+    }
+
+    const updatedTeam = await Team.findOneAndUpdate(
+      { _id: team._id, revealTokens: { $gt: 0 } },
+      { $inc: { revealTokens: -1 } },
+      { returnDocument: 'after' }
+    );
+    if (!updatedTeam) {
+      return res.status(400).json({ error: 'No reveal tokens remaining' });
+    }
+
+    const updatedPlayer = await Player.findByIdAndUpdate(
+      playerId,
+      { $addToSet: { revealedTo: team._id } },
+      { returnDocument: 'after' }
+    );
+
+    const io = global._io;
+    if (io) io.emit('team:token_used', { teamId: team._id.toString(), revealTokens: updatedTeam.revealTokens });
+
+    res.json({
+      player: updatedPlayer,
+      tokensLeft: updatedTeam.revealTokens,
+      success: true,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // POST /api/auction/sold

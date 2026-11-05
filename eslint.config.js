@@ -1,7 +1,4 @@
-import js from '@eslint/js';
-
 export default [
-  js.configs.recommended,
   {
     languageOptions: {
       ecmaVersion: 2022,
@@ -11,6 +8,7 @@ export default [
         process: 'readonly',
         fetch: 'readonly',
         setTimeout: 'readonly',
+        clearTimeout: 'readonly',
         setInterval: 'readonly',
         clearInterval: 'readonly',
         document: 'readonly',

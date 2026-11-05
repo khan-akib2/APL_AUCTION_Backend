@@ -106,6 +106,63 @@ router.get('/', authMiddleware, async (req, res) => {
   }
 });
 
+// POST /api/players/:id/reveal — captain consumes 1 reveal token to unmask mystery player
+router.post('/:id/reveal', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    let teamId = req.user.teamId || req.body.teamId;
+    if (!teamId && req.user.id) {
+      const User = (await import('../models/User.js')).default;
+      const u = await User.findById(req.user.id);
+      teamId = u?.teamId;
+    }
+    if (!teamId) return res.status(400).json({ error: 'No team assigned to your account' });
+
+    const Team = (await import('../models/Team.js')).default;
+    const team = await Team.findById(teamId);
+    if (!team) return res.status(404).json({ error: 'Team not found' });
+
+    const player = await Player.findById(id);
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+    if (!player.isMysteryPlayer) return res.status(400).json({ error: 'Player is not a mystery player' });
+
+    const alreadyRevealed = player.revealedTo?.some(tId => tId.toString() === team._id.toString());
+    if (alreadyRevealed) {
+      return res.json({ player, tokensLeft: team.revealTokens, alreadyRevealed: true });
+    }
+
+    if ((team.revealTokens || 0) < 1) {
+      return res.status(400).json({ error: 'No reveal tokens remaining' });
+    }
+
+    const updatedTeam = await Team.findOneAndUpdate(
+      { _id: team._id, revealTokens: { $gt: 0 } },
+      { $inc: { revealTokens: -1 } },
+      { returnDocument: 'after' }
+    );
+    if (!updatedTeam) {
+      return res.status(400).json({ error: 'No reveal tokens remaining' });
+    }
+
+    const updatedPlayer = await Player.findByIdAndUpdate(
+      id,
+      { $addToSet: { revealedTo: team._id } },
+      { returnDocument: 'after' }
+    );
+
+    const io = global._io;
+    if (io) io.emit('team:token_used', { teamId: team._id.toString(), revealTokens: updatedTeam.revealTokens });
+
+    res.json({
+      player: updatedPlayer,
+      tokensLeft: updatedTeam.revealTokens,
+      success: true,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // POST /api/players
 router.post('/', authMiddleware, adminOnly, async (req, res) => {
   try {

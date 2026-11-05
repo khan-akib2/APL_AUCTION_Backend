@@ -58,8 +58,9 @@ if (useCloudinary) {
 
 router.post('/', authMiddleware, adminOnly, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file provided' });
-  // Cloudinary returns req.file.path as the URL; local disk needs manual URL
-  const url = req.file.path || `${process.env.BACKEND_URL || ''}/uploads/${req.file.filename}`;
+  const backendBase = process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`;
+  // Cloudinary returns req.file.path as the URL; local disk needs HTTP URL
+  const url = useCloudinary ? req.file.path : `${backendBase}/uploads/${req.file.filename}`;
   res.json({ url });
 });
 

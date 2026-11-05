@@ -4,7 +4,7 @@ import AuctionLog from '../models/AuctionLog.js';
 import Player from '../models/Player.js';
 import Team from '../models/Team.js';
 import User from '../models/User.js';
-import { authMiddleware, adminOnly, captainOnly } from '../lib/auth.js';
+import { authMiddleware, adminOnly, captainOnly, verifyToken } from '../lib/auth.js';
 
 const router = Router();
 const getIO = () => global._io;
@@ -228,8 +228,8 @@ export async function recoverPendingFinalizations() {
   }
 }
 
-// GET /api/auction/active
-router.get('/active', authMiddleware, async (req, res) => {
+// GET /api/auction/active — supports authenticated admin/captains and unauthenticated public fallback
+router.get('/active', async (req, res) => {
   try {
     const sportFilter = getSportFilter(req);
     const session = await AuctionSession.findOne({ status: { $in: ['active', 'finalizing'] }, ...sportFilter })
@@ -241,13 +241,21 @@ router.get('/active', authMiddleware, async (req, res) => {
     if (!session) return res.json({ session: null });
 
     const sessionObj = session.toObject();
-    if (req.user.role === 'admin') {
+
+    // Optional auth check
+    let user = null;
+    const header = req.headers.authorization;
+    if (header?.startsWith('Bearer ')) {
+      user = verifyToken(header.slice(7));
+    }
+
+    if (user?.role === 'admin') {
       sessionObj.playerId = sanitizePlayerForAdmin(session.playerId);
     } else {
-      let teamId = req.user.teamId;
-      if (!teamId && req.user.id) {
-        const u = await User.findById(req.user.id);
-        teamId = u?.teamId;
+      let teamId = user?.teamId || null;
+      if (!teamId && user?.id) {
+        const u = await User.findById(user.id);
+        teamId = u?.teamId || null;
       }
       sessionObj.playerId = sanitizePlayerForPublic(session.playerId, teamId);
     }

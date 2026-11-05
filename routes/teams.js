@@ -197,7 +197,8 @@ router.post('/', authMiddleware, adminOnly, async (req, res) => {
   try {
     const sport = req.body.sport === 'football' ? 'football' : 'cricket';
     const initialBudget = req.body.budget || 1000;
-    const team = await Team.create({ ...req.body, sport, initialBudget });
+    const teamSize = Number(req.body.teamSize) || 7;
+    const team = await Team.create({ ...req.body, sport, initialBudget, teamSize });
     if (req.body.captainId) {
       await User.findByIdAndUpdate(req.body.captainId, { teamId: team._id });
     }

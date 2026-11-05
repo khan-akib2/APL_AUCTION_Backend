@@ -9,6 +9,7 @@ const TeamSchema = new mongoose.Schema({
   initialBudget: { type: Number, default: 1000 },
   pointsSpent: { type: Number, default: 0 },
   playerCount: { type: Number, default: 0 },
+  teamSize: { type: Number, default: 7 },
   revealTokens: { type: Number, default: 1 },
   sport: { type: String, enum: ['cricket', 'football'], default: 'cricket', index: true },
 }, { timestamps: true });

@@ -29,7 +29,7 @@ router.get('/public', async (req, res) => {
     const sportFilter = getSportFilter(req);
     const teams = await Team.find(sportFilter)
       .populate({ path: 'players', select: 'name skills soldPrice photo' })
-      .select('name budget pointsSpent playerCount players sport')
+      .select('name budget pointsSpent playerCount players sport teamSize')
       .sort({ pointsSpent: -1 });
     res.json({ teams });
   } catch (e) {

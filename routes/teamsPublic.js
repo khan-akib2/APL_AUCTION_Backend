@@ -11,7 +11,7 @@ router.get('/', async (req, res) => {
       : { $or: [{ sport: 'cricket' }, { sport: { $exists: false } }] };
 
     const teams = await Team.find(sportFilter)
-      .select('name logo budget pointsSpent playerCount players sport')
+      .select('name logo budget pointsSpent playerCount players sport teamSize')
       .populate('players', 'name skills soldPrice photo isMysteryPlayer')
       .sort({ name: 1 });
     res.json({ teams });

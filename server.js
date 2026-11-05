@@ -52,7 +52,7 @@ app.use(cors({
 }));
 
 app.use(express.json({ limit: '10mb' }));
-app.use(express.text({ type: 'text/plain' })); // for sendBeacon logout
+app.use(express.text({ type: 'text/plain' }));
 
 // Serve uploaded player photos
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -74,8 +74,20 @@ global._io = io;
 
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
-  // Broadcast updated viewer count to all clients
+  // Default to sport:cricket room for backward compatibility
+  socket.join('sport:cricket');
+
   io.emit('viewers:count', io.engine.clientsCount);
+
+  // Client requests sport room isolation
+  socket.on('join:sport', (sport) => {
+    const target = sport === 'football' ? 'football' : 'cricket';
+    socket.leave('sport:cricket');
+    socket.leave('sport:football');
+    socket.join(`sport:${target}`);
+    console.log(`Socket ${socket.id} joined room sport:${target}`);
+  });
+
   socket.on('disconnect', () => {
     console.log('Client disconnected:', socket.id);
     io.emit('viewers:count', io.engine.clientsCount);
@@ -85,21 +97,6 @@ io.on('connection', (socket) => {
 // MongoDB
 await connectDB();
 await recoverPendingFinalizations();
-
-// Timer is disabled — admin manually controls auction end
-
-// Keep-alive ping — prevents Render free tier from sleeping
-// Pings itself every 14 minutes
-const BACKEND_URL = process.env.BACKEND_URL;
-if (BACKEND_URL) {
-  setInterval(async () => {
-    try {
-      await fetch(`${BACKEND_URL}/health`);
-    } catch {
-      // silent — just a keep-alive
-    }
-  }, 14 * 60 * 1000);
-}
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -112,10 +109,10 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/seed', seedRoutes);
 
-app.get('/', (_req, res) => res.json({ status: 'ok' }));
-app.get('/health', (_req, res) => res.json({ status: 'ok' }));
+// Health check
+app.get('/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date() }));
 
 const PORT = process.env.PORT || 4000;
-httpServer.listen(PORT, '0.0.0.0', () => {
-  console.log(`Backend running on port ${PORT}`);
+httpServer.listen(PORT, () => {
+  console.log(`APL Auction Backend running on port ${PORT}`);
 });

@@ -246,7 +246,7 @@ async function autoResolveAuction(sessionId, sport) {
     emitSportEvent(target, 'auction:finalizing', {
       sessionId: finalizingSession._id,
       action: 'sold',
-      countdown: 0,
+      countdown: 2,
       finalizingAt: now,
       leaderTeamId: finalizingSession.currentHighestBidder?._id || finalizingSession.currentHighestBidder,
       leaderTeamName: finalizingSession.currentHighestBidderName,
@@ -254,9 +254,9 @@ async function autoResolveAuction(sessionId, sport) {
       playerId: finalizingSession.playerId?._id || finalizingSession.playerId,
     });
 
-    await commitFinalization(sessionId);
+    scheduleCommitFinalization(sessionId, 2000);
   } else {
-    // No bids placed within 6 seconds: marked unsold
+    // No bids placed within timer duration: marked unsold
     const finalizingSession = await AuctionSession.findOneAndUpdate(
       { _id: sessionId, status: 'active' },
       {
@@ -275,12 +275,12 @@ async function autoResolveAuction(sessionId, sport) {
     emitSportEvent(target, 'auction:finalizing', {
       sessionId: finalizingSession._id,
       action: 'unsold',
-      countdown: 0,
+      countdown: 2,
       finalizingAt: now,
       playerId: finalizingSession.playerId?._id || finalizingSession.playerId,
     });
 
-    await commitFinalization(sessionId);
+    scheduleCommitFinalization(sessionId, 2000);
   }
 }
 
@@ -524,13 +524,10 @@ router.post('/bid', authMiddleware, captainOnly, async (req, res) => {
     const session = await AuctionSession.findById(sessionId);
     if (!session) return res.status(404).json({ error: 'Auction session not found' });
 
-    if (session.status === 'finalizing') {
-      return res.status(409).json({ error: 'Bidding is locked — player sale is being finalized' });
-    }
     if (session.status === 'closed') {
       return res.status(409).json({ error: 'Auction for this player has already ended' });
     }
-    if (session.status !== 'active') {
+    if (session.status !== 'active' && session.status !== 'finalizing') {
       return res.status(400).json({ error: 'No active auction accepting bids' });
     }
     if (session.timerPaused) {
@@ -583,11 +580,14 @@ router.post('/bid', authMiddleware, captainOnly, async (req, res) => {
     const updatedSession = await AuctionSession.findOneAndUpdate(
       {
         _id: sessionId,
-        status: 'active',
+        status: { $in: ['active', 'finalizing'] },
         currentBid: session.currentBid,
       },
       {
         $set: {
+          status: 'active',
+          finalizingAction: null,
+          finalizingAt: null,
           currentBid: newBid,
           currentHighestBidder: team._id,
           currentHighestBidderName: team.name,
@@ -606,13 +606,17 @@ router.post('/bid', authMiddleware, captainOnly, async (req, res) => {
 
     if (!updatedSession) {
       const checkSession = await AuctionSession.findById(sessionId);
-      if (checkSession?.status === 'finalizing') {
-        return res.status(409).json({ error: 'Bidding is locked — player sale is being finalized' });
-      }
       if (checkSession?.status === 'closed') {
         return res.status(409).json({ error: 'Auction for this player has closed' });
       }
       return res.status(409).json({ error: 'Another bid was placed at the same moment. Please try again.' });
+    }
+
+    // Cancel any scheduled finalization on new valid bid
+    const sId = updatedSession._id.toString();
+    if (_finalizingTimers.has(sId)) {
+      clearTimeout(_finalizingTimers.get(sId));
+      _finalizingTimers.delete(sId);
     }
 
     const sport = updatedSession.sport || 'cricket';

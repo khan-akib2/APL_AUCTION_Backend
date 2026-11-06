@@ -233,8 +233,6 @@ async function autoResolveAuction(sessionId, sport) {
           status: 'finalizing',
           finalizingAt: now,
           finalizingAction: 'sold',
-          finalizedLeader: session.currentHighestBidder,
-          finalizedAmount: session.currentBid,
           timerRemaining: 0,
         },
       },
@@ -246,7 +244,7 @@ async function autoResolveAuction(sessionId, sport) {
     emitSportEvent(target, 'auction:finalizing', {
       sessionId: finalizingSession._id,
       action: 'sold',
-      countdown: 2,
+      countdown: 3,
       finalizingAt: now,
       leaderTeamId: finalizingSession.currentHighestBidder?._id || finalizingSession.currentHighestBidder,
       leaderTeamName: finalizingSession.currentHighestBidderName,
@@ -254,7 +252,7 @@ async function autoResolveAuction(sessionId, sport) {
       playerId: finalizingSession.playerId?._id || finalizingSession.playerId,
     });
 
-    scheduleCommitFinalization(sessionId, 2000);
+    scheduleCommitFinalization(sessionId, 3000);
   } else {
     // No bids placed within timer duration: marked unsold
     const finalizingSession = await AuctionSession.findOneAndUpdate(
@@ -275,12 +273,12 @@ async function autoResolveAuction(sessionId, sport) {
     emitSportEvent(target, 'auction:finalizing', {
       sessionId: finalizingSession._id,
       action: 'unsold',
-      countdown: 2,
+      countdown: 3,
       finalizingAt: now,
       playerId: finalizingSession.playerId?._id || finalizingSession.playerId,
     });
 
-    scheduleCommitFinalization(sessionId, 2000);
+    scheduleCommitFinalization(sessionId, 3000);
   }
 }
 
@@ -334,10 +332,8 @@ export async function commitFinalization(sessionId) {
   }
 
   // Finalizing action: 'sold'
-  const winningTeamId = session.finalizedLeader || session.currentHighestBidder;
-  const winningPrice = session.finalizedAmount !== null && session.finalizedAmount !== undefined
-    ? session.finalizedAmount
-    : session.currentBid;
+  const winningTeamId = session.currentHighestBidder || session.finalizedLeader;
+  const winningPrice = session.currentBid || session.finalizedAmount || 0;
 
   const player = await Player.findOneAndUpdate(
     { _id: session.playerId, status: { $ne: 'sold' } },
@@ -577,6 +573,9 @@ router.post('/bid', authMiddleware, captainOnly, async (req, res) => {
     const newBid = session.currentBid + amount;
     if (team.budget < newBid) return res.status(400).json({ error: 'Insufficient budget' });
 
+    const duration = (Number.isFinite(session.timerDuration) && session.timerDuration >= 3)
+      ? session.timerDuration
+      : 6;
     const updatedSession = await AuctionSession.findOneAndUpdate(
       {
         _id: sessionId,
@@ -591,6 +590,13 @@ router.post('/bid', authMiddleware, captainOnly, async (req, res) => {
           currentBid: newBid,
           currentHighestBidder: team._id,
           currentHighestBidderName: team.name,
+          timerRemaining: duration,
+          timerDuration: duration,
+          timerPaused: false,
+        },
+        $unset: {
+          finalizedLeader: 1,
+          finalizedAmount: 1,
         },
         $push: {
           bids: {
@@ -633,10 +639,11 @@ router.post('/bid', authMiddleware, captainOnly, async (req, res) => {
       currentBid: newBid,
       bidderTeamName: team.name,
       bidderTeamId: team._id,
+      timerRemaining: duration,
+      duration,
     });
 
     // Reset timer to session's configured timerDuration on valid bid
-    const duration = updatedSession.timerDuration || 6;
     startBiddingTimer(updatedSession._id, sport, duration, duration);
 
     res.json({ session: updatedSession });
@@ -793,8 +800,7 @@ router.post('/sold', authMiddleware, adminOnly, async (req, res) => {
           status: 'finalizing',
           finalizingAt: now,
           finalizingAction: 'sold',
-          finalizedLeader: session.currentHighestBidder,
-          finalizedAmount: session.currentBid,
+          timerRemaining: 0,
         },
       },
       { returnDocument: 'after' }

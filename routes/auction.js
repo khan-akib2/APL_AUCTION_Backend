@@ -83,24 +83,29 @@ function runTimerLoop(target) {
         { $set: { timerRemaining: t.remaining, timerPaused: false } }
       ).catch(() => {});
     } else {
-      // Timer reached 0: clear timer interval immediately
+      // Timer reached 0: Stop countdown at 0 and pause.
+      // Do NOT automatically sell/unsold. Admin manually marks sold or increases time.
       const sid = t.sessionId;
-      clearBiddingTimer(target);
+      t.remaining = 0;
+      t.paused = true;
+      if (t.interval) {
+        clearInterval(t.interval);
+        t.interval = null;
+      }
 
       emitSportEvent(target, 'auction:timer', {
         sessionId: sid,
         sport: target,
         remaining: 0,
         duration: t.duration,
-        paused: false,
+        paused: true,
+        timeEnded: true,
       });
 
-      // Automatically resolve auction: sold to highest bidder or marked unsold
-      try {
-        await autoResolveAuction(sid, target);
-      } catch (err) {
-        console.error(`[Auction Timer] Error auto-resolving auction for session ${sid}:`, err);
-      }
+      AuctionSession.updateOne(
+        { _id: sid, status: 'active' },
+        { $set: { timerRemaining: 0, timerPaused: true } }
+      ).catch(() => {});
     }
   }, 1000);
 }
@@ -172,9 +177,12 @@ export function resumeBiddingTimer(sport) {
   if (!t) return null;
 
   t.paused = false;
+  if (t.remaining <= 0) {
+    t.remaining = t.duration || 6;
+  }
   AuctionSession.updateOne(
     { _id: t.sessionId, status: 'active' },
-    { $set: { timerPaused: false } }
+    { $set: { timerPaused: false, timerRemaining: t.remaining } }
   ).catch(() => {});
 
   emitSportEvent(target, 'auction:timer', {
@@ -196,11 +204,12 @@ export function setBiddingTimerSeconds(sport, seconds) {
 
   if (t) {
     t.remaining = newSeconds;
+    t.paused = false;
     if (newSeconds > t.duration) t.duration = newSeconds;
 
     AuctionSession.updateOne(
       { _id: t.sessionId, status: 'active' },
-      { $set: { timerRemaining: newSeconds, timerDuration: t.duration } }
+      { $set: { timerRemaining: newSeconds, timerDuration: t.duration, timerPaused: false } }
     ).catch(() => {});
 
     emitSportEvent(target, 'auction:timer', {
@@ -208,80 +217,13 @@ export function setBiddingTimerSeconds(sport, seconds) {
       sport: target,
       remaining: t.remaining,
       duration: t.duration,
-      paused: t.paused,
+      paused: false,
     });
+
+    runTimerLoop(target);
   }
   return t;
 }
-
-// Automatically resolves auction when 6-second timer expires
-async function autoResolveAuction(sessionId, sport) {
-  const target = sport === 'football' ? 'football' : 'cricket';
-
-  const session = await AuctionSession.findById(sessionId);
-  if (!session || session.status !== 'active') return;
-
-  const now = new Date();
-  const hasBids = Boolean(session.currentHighestBidder);
-
-  if (hasBids) {
-    // Sold to highest bidder
-    const finalizingSession = await AuctionSession.findOneAndUpdate(
-      { _id: sessionId, status: 'active' },
-      {
-        $set: {
-          status: 'finalizing',
-          finalizingAt: now,
-          finalizingAction: 'sold',
-          timerRemaining: 0,
-        },
-      },
-      { returnDocument: 'after' }
-    ).populate('playerId').populate('currentHighestBidder', 'name');
-
-    if (!finalizingSession) return;
-
-    emitSportEvent(target, 'auction:finalizing', {
-      sessionId: finalizingSession._id,
-      action: 'sold',
-      countdown: 3,
-      finalizingAt: now,
-      leaderTeamId: finalizingSession.currentHighestBidder?._id || finalizingSession.currentHighestBidder,
-      leaderTeamName: finalizingSession.currentHighestBidderName,
-      winningBid: finalizingSession.currentBid,
-      playerId: finalizingSession.playerId?._id || finalizingSession.playerId,
-    });
-
-    scheduleCommitFinalization(sessionId, 3000);
-  } else {
-    // No bids placed within timer duration: marked unsold
-    const finalizingSession = await AuctionSession.findOneAndUpdate(
-      { _id: sessionId, status: 'active' },
-      {
-        $set: {
-          status: 'finalizing',
-          finalizingAt: now,
-          finalizingAction: 'unsold',
-          timerRemaining: 0,
-        },
-      },
-      { returnDocument: 'after' }
-    ).populate('playerId');
-
-    if (!finalizingSession) return;
-
-    emitSportEvent(target, 'auction:finalizing', {
-      sessionId: finalizingSession._id,
-      action: 'unsold',
-      countdown: 3,
-      finalizingAt: now,
-      playerId: finalizingSession.playerId?._id || finalizingSession.playerId,
-    });
-
-    scheduleCommitFinalization(sessionId, 3000);
-  }
-}
-
 
 // Active finalization timeouts map to prevent duplicate scheduled commits
 const _finalizingTimers = new Map();
@@ -525,6 +467,9 @@ router.post('/bid', authMiddleware, captainOnly, async (req, res) => {
     }
     if (session.status !== 'active' && session.status !== 'finalizing') {
       return res.status(400).json({ error: 'No active auction accepting bids' });
+    }
+    if (session.timerRemaining !== null && session.timerRemaining <= 0) {
+      return res.status(400).json({ error: 'Bidding time ended. Waiting for admin to sell or increase time.' });
     }
     if (session.timerPaused) {
       return res.status(400).json({ error: 'Bidding is currently paused by admin' });

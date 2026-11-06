@@ -17,7 +17,7 @@ function getSportFilter(req) {
 }
 
 // Strictly emit auction events to the sport-specific Socket.IO room.
-// Avoid global un-roomed duplicate broadcasts which caused clients to receive 4x duplicate events.
+// Single canonical event broadcast — no duplicate aliases or un-roomed duplicates.
 export function emitSportEvent(sport, eventName, payload) {
   const io = getIO();
   if (!io) return;
@@ -26,37 +26,6 @@ export function emitSportEvent(sport, eventName, payload) {
 
   // Room broadcast strictly to sport rooms (Socket.IO deduplicates across room arguments for each client)
   io.to(`sport:${target}`).to(`auction:${target}`).emit(eventName, data);
-
-  // Cross-emit legacy aliases to sport rooms for backward compatibility without duplicating
-  if (eventName === 'auction:start') {
-    const legacy = { ...data, session: payload.session, player: payload.player };
-    io.to(`sport:${target}`).to(`auction:${target}`).emit('playerNominated', legacy);
-  } else if (eventName === 'auction:bid_update') {
-    const legacy = {
-      ...data,
-      amount: payload.currentBid,
-      teamId: payload.bidderTeamId,
-      teamName: payload.bidderTeamName,
-    };
-    io.to(`sport:${target}`).to(`auction:${target}`).emit('bidPlaced', legacy);
-  } else if (eventName === 'auction:finalizing') {
-    io.to(`sport:${target}`).to(`auction:${target}`).emit('auctionFinalizing', data);
-  } else if (eventName === 'auction:sold') {
-    const legacy = {
-      ...data,
-      player: payload.player,
-      team: payload.team,
-      teamId: payload.team?._id || payload.teamId,
-      teamName: payload.team?.name || payload.teamName,
-      amount: payload.amount ?? payload.session?.currentBid ?? payload.player?.soldPrice,
-    };
-    io.to(`sport:${target}`).to(`auction:${target}`).emit('playerSold', legacy);
-    io.to(`sport:${target}`).to(`auction:${target}`).emit('auctionFinalized', legacy);
-  } else if (eventName === 'auction:unsold') {
-    const legacy = { ...data, player: payload.player, session: payload.session };
-    io.to(`sport:${target}`).to(`auction:${target}`).emit('playerUnsold', legacy);
-    io.to(`sport:${target}`).to(`auction:${target}`).emit('auctionFinalized', legacy);
-  }
 }
 
 // Sanitize a player object for non-admin/non-owner views

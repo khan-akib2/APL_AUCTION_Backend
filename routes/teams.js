@@ -4,6 +4,7 @@ import User from '../models/User.js';
 import Player from '../models/Player.js';
 import AuctionSession from '../models/AuctionSession.js';
 import AuctionLog from '../models/AuctionLog.js';
+import { clearBiddingTimer } from './auction.js';
 import { authMiddleware, adminOnly } from '../lib/auth.js';
 
 const router = Router();
@@ -104,6 +105,7 @@ router.post('/reset-all', authMiddleware, adminOnly, async (req, res) => {
     );
 
     // 3. Close active/finalizing auction session for this sport
+    clearBiddingTimer(sport);
     await AuctionSession.updateMany(
       { status: { $in: ['active', 'finalizing'] }, ...sportFilter },
       { status: 'closed' }

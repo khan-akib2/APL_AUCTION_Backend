@@ -357,18 +357,30 @@ export async function recoverPendingFinalizations() {
 
 async function fetchLastSold(sportFilter) {
   try {
-    const lastLog = await AuctionLog.findOne({ ...sportFilter, action: 'sold' })
+    const soldLogs = await AuctionLog.find({ ...sportFilter, action: 'sold' })
       .sort({ timestamp: -1 })
-      .populate('playerId', 'name photo skills soldPrice gender isMysteryPlayer')
+      .limit(10)
+      .populate('playerId', 'name photo skills soldPrice gender isMysteryPlayer status soldTo')
       .populate('teamId', 'name logo');
-    if (!lastLog || !lastLog.playerId) return null;
-    return {
-      player: lastLog.playerId,
-      team: lastLog.teamId,
-      teamName: lastLog.teamId?.name || '',
-      amount: lastLog.amount,
-      timestamp: lastLog.timestamp,
-    };
+
+    for (const log of soldLogs) {
+      if (!log.playerId || !log.teamId) continue;
+      const playerSoldTo = log.playerId.soldTo
+        ? String(typeof log.playerId.soldTo === 'object' ? log.playerId.soldTo._id : log.playerId.soldTo)
+        : null;
+      const teamIdStr = String(log.teamId._id || log.teamId);
+      const isStillSold = log.playerId.status === 'sold' && playerSoldTo === teamIdStr;
+      if (isStillSold) {
+        return {
+          player: log.playerId,
+          team: log.teamId,
+          teamName: log.teamId?.name || '',
+          amount: log.amount || log.playerId.soldPrice || 0,
+          timestamp: log.timestamp,
+        };
+      }
+    }
+    return null;
   } catch {
     return null;
   }

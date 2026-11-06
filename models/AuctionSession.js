@@ -21,8 +21,8 @@ const AuctionSessionSchema = new mongoose.Schema({
   finalizedLeader: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', default: null },
   finalizedAmount: { type: Number, default: null },
   finalizingAction: { type: String, enum: ['sold', 'unsold'], default: 'sold' },
-  timerDuration: { type: Number, default: 30 },
-  timerRemaining: { type: Number, default: 30 },
+  timerDuration: { type: Number, default: 6 },
+  timerRemaining: { type: Number, default: 6 },
   timerPaused: { type: Boolean, default: false },
 }, { timestamps: true });
 

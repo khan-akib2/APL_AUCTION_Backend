@@ -921,6 +921,10 @@ router.post('/lock-captain', authMiddleware, async (req, res) => {
     if (req.user.role === 'captain') {
       const dbUser = await User.findById(req.user.id);
       teamId = dbUser?.teamId || req.user.teamId || teamId;
+      if (!teamId) {
+        const teamByCaptain = await Team.findOne({ captainId: req.user.id });
+        if (teamByCaptain) teamId = teamByCaptain._id;
+      }
     }
     if (!teamId) return res.status(400).json({ error: 'teamId required' });
 

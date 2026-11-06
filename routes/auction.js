@@ -263,6 +263,10 @@ export async function commitFinalization(sessionId) {
       { status: 'unsold' },
       { returnDocument: 'after' }
     );
+    await Team.updateMany(
+      { players: session.playerId },
+      { $pull: { players: session.playerId } }
+    );
     await AuctionLog.create({
       playerId: session.playerId,
       sport,
@@ -289,6 +293,12 @@ export async function commitFinalization(sessionId) {
     { returnDocument: 'after' }
   ) || await Player.findById(session.playerId);
 
+  // Remove player from any other team's squad to prevent cross-team duplication
+  await Team.updateMany(
+    { _id: { $ne: winningTeamId }, players: session.playerId },
+    { $pull: { players: session.playerId } }
+  );
+
   const team = await Team.findOneAndUpdate(
     { _id: winningTeamId, players: { $ne: session.playerId } },
     {
@@ -310,12 +320,14 @@ export async function commitFinalization(sessionId) {
     amount: winningPrice,
   });
 
+  const resolvedTeamName = team?.name || session.currentHighestBidderName || '';
+
   emitSportEvent(sport, 'auction:sold', {
     player,
     team,
     session,
-    teamId: team?._id,
-    teamName: team?.name,
+    teamId: team?._id || winningTeamId,
+    teamName: resolvedTeamName,
     amount: winningPrice,
   });
 
@@ -343,17 +355,37 @@ export async function recoverPendingFinalizations() {
   }
 }
 
+async function fetchLastSold(sportFilter) {
+  try {
+    const lastLog = await AuctionLog.findOne({ ...sportFilter, action: 'sold' })
+      .sort({ timestamp: -1 })
+      .populate('playerId', 'name photo skills soldPrice gender isMysteryPlayer')
+      .populate('teamId', 'name logo');
+    if (!lastLog || !lastLog.playerId) return null;
+    return {
+      player: lastLog.playerId,
+      team: lastLog.teamId,
+      teamName: lastLog.teamId?.name || '',
+      amount: lastLog.amount,
+      timestamp: lastLog.timestamp,
+    };
+  } catch {
+    return null;
+  }
+}
+
 // GET /api/auction/active — supports authenticated admin/captains and unauthenticated public fallback
 router.get('/active', async (req, res) => {
   try {
     const sportFilter = getSportFilter(req);
+    const lastSold = await fetchLastSold(sportFilter);
     const session = await AuctionSession.findOne({ status: { $in: ['active', 'finalizing'] }, ...sportFilter })
       .populate('playerId').populate('currentHighestBidder', 'name');
     if (session && !session.playerId) {
       session.status = 'closed'; session.endedAt = new Date(); await session.save();
-      return res.json({ session: null });
+      return res.json({ session: null, lastSold });
     }
-    if (!session) return res.json({ session: null });
+    if (!session) return res.json({ session: null, lastSold });
 
     const sessionObj = session.toObject();
     const targetSport = session.sport || 'cricket';
@@ -380,7 +412,7 @@ router.get('/active', async (req, res) => {
       }
       sessionObj.playerId = sanitizePlayerForPublic(session.playerId, teamId);
     }
-    res.json({ session: sessionObj });
+    res.json({ session: sessionObj, lastSold });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -388,9 +420,10 @@ router.get('/active', async (req, res) => {
 router.get('/active-public', async (req, res) => {
   try {
     const sportFilter = getSportFilter(req);
+    const lastSold = await fetchLastSold(sportFilter);
     const session = await AuctionSession.findOne({ status: { $in: ['active', 'finalizing'] }, ...sportFilter })
       .populate('playerId').populate('currentHighestBidder', 'name');
-    if (!session) return res.json({ session: null });
+    if (!session) return res.json({ session: null, lastSold });
     const sessionObj = session.toObject();
     const targetSport = session.sport || 'cricket';
     const activeTimer = _sportTimers.get(targetSport);
@@ -399,7 +432,7 @@ router.get('/active-public', async (req, res) => {
       sessionObj.timerPaused = Boolean(activeTimer.paused);
     }
     sessionObj.playerId = sanitizePlayerForPublic(session.playerId, null);
-    res.json({ session: sessionObj });
+    res.json({ session: sessionObj, lastSold });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

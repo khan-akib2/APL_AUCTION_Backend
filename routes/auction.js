@@ -459,6 +459,15 @@ router.post('/bid', authMiddleware, captainOnly, async (req, res) => {
     }
     if (!teamId) return res.status(400).json({ error: 'No team assigned to your account' });
 
+    const team = await Team.findById(teamId);
+    if (!team) return res.status(404).json({ error: 'Team not found' });
+
+    if (team.isLocked) {
+      return res.status(403).json({
+        error: `Your account is locked (${team.lockReason || 'Anti-cheat violation'}). Please wait for the admin to unlock you.`
+      });
+    }
+
     const session = await AuctionSession.findById(sessionId);
     if (!session) return res.status(404).json({ error: 'Auction session not found' });
 
@@ -491,9 +500,6 @@ router.post('/bid', authMiddleware, captainOnly, async (req, res) => {
     if (player.status === 'sold') {
       return res.status(409).json({ error: 'Player has already been sold' });
     }
-
-    const team = await Team.findById(teamId);
-    if (!team) return res.status(404).json({ error: 'Team not found' });
 
     // Validate squad capacity
     const maxSquad = team.teamSize || 7;
@@ -610,6 +616,12 @@ router.post('/reveal', authMiddleware, captainOnly, async (req, res) => {
 
     const team = await Team.findById(teamId);
     if (!team) return res.status(404).json({ error: 'Team not found' });
+
+    if (team.isLocked) {
+      return res.status(403).json({
+        error: `Your account is locked (${team.lockReason || 'Anti-cheat violation'}). Please wait for the admin to unlock you.`
+      });
+    }
 
     const player = await Player.findById(playerId);
     if (!player) return res.status(404).json({ error: 'Player not found' });
@@ -867,6 +879,87 @@ router.delete('/log', authMiddleware, adminOnly, async (req, res) => {
     await AuctionLog.deleteMany(sportFilter);
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/auction/lock-captain — anti-cheat violation locks captain
+router.post('/lock-captain', authMiddleware, async (req, res) => {
+  try {
+    let { teamId, reason, sport } = req.body;
+    if (req.user.role === 'captain') {
+      const dbUser = await User.findById(req.user.id);
+      teamId = dbUser?.teamId || req.user.teamId || teamId;
+    }
+    if (!teamId) return res.status(400).json({ error: 'teamId required' });
+
+    const team = await Team.findById(teamId);
+    if (!team) return res.status(404).json({ error: 'Team not found' });
+
+    const violationReason = reason || 'Tab switch or Inspect detected';
+    const lockedAt = new Date();
+
+    team.isLocked = true;
+    team.lockReason = violationReason;
+    team.lockedAt = lockedAt;
+    await team.save();
+
+    const targetSport = team.sport || sport || 'cricket';
+
+    await AuctionLog.create({
+      teamId: team._id,
+      sport: targetSport,
+      action: 'captain_locked',
+      details: `${team.name} captain locked out for: ${violationReason}`,
+      timestamp: lockedAt,
+    }).catch(err => console.error('Failed to log captain lockout:', err));
+
+    emitSportEvent(targetSport, 'captain:locked', {
+      teamId: team._id.toString(),
+      teamName: team.name,
+      reason: violationReason,
+      lockedAt,
+      sport: targetSport,
+    });
+
+    res.json({ success: true, team });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/auction/unlock-captain — admin unlocks/re-admits a locked captain
+router.post('/unlock-captain', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const { teamId } = req.body;
+    if (!teamId) return res.status(400).json({ error: 'teamId required' });
+
+    const team = await Team.findById(teamId);
+    if (!team) return res.status(404).json({ error: 'Team not found' });
+
+    team.isLocked = false;
+    team.lockReason = null;
+    team.lockedAt = null;
+    await team.save();
+
+    const targetSport = team.sport || 'cricket';
+
+    await AuctionLog.create({
+      teamId: team._id,
+      sport: targetSport,
+      action: 'captain_unlocked',
+      details: `${team.name} captain unlocked by admin`,
+      timestamp: new Date(),
+    }).catch(err => console.error('Failed to log captain unlock:', err));
+
+    emitSportEvent(targetSport, 'captain:unlocked', {
+      teamId: team._id.toString(),
+      teamName: team.name,
+      sport: targetSport,
+    });
+
+    res.json({ success: true, team });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 export default router;

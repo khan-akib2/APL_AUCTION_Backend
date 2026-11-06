@@ -50,6 +50,9 @@ router.post('/reset-all', authMiddleware, adminOnly, async (req, res) => {
         playerCount: 0,
         players: [],
         revealTokens: 1,
+        isLocked: false,
+        lockReason: null,
+        lockedAt: null,
       });
     }
 
@@ -118,6 +121,9 @@ router.post('/:id/reset', authMiddleware, adminOnly, async (req, res) => {
         playerCount: 0,
         players: [],
         revealTokens: 1,
+        isLocked: false,
+        lockReason: null,
+        lockedAt: null,
       },
       { returnDocument: 'after' }
     ).populate('players').populate('captainId', 'name email');

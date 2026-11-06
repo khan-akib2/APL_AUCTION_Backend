@@ -122,6 +122,12 @@ router.post('/:id/reveal', authMiddleware, async (req, res) => {
     const team = await Team.findById(teamId);
     if (!team) return res.status(404).json({ error: 'Team not found' });
 
+    if (team.isLocked) {
+      return res.status(403).json({
+        error: `Your account is locked (${team.lockReason || 'Anti-cheat violation'}). Please wait for the admin to unlock you.`
+      });
+    }
+
     const player = await Player.findById(id);
     if (!player) return res.status(404).json({ error: 'Player not found' });
     if (!player.isMysteryPlayer) return res.status(400).json({ error: 'Player is not a mystery player' });

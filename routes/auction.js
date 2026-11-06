@@ -357,17 +357,50 @@ export async function recoverPendingFinalizations() {
 
 async function fetchLastSold(sportFilter) {
   try {
-    const lastLog = await AuctionLog.findOne({ ...sportFilter, action: 'sold' })
+    // 1. If no players are currently marked 'sold' in this sport, there is no active last sold result
+    const hasSoldPlayer = await Player.exists({ ...sportFilter, status: 'sold' });
+    if (!hasSoldPlayer) return null;
+
+    // 2. Find the most recent sold log for this sport where the player is currently still sold to that team
+    const recentSoldLogs = await AuctionLog.find({ ...sportFilter, action: 'sold' })
       .sort({ timestamp: -1 })
-      .populate('playerId', 'name photo skills soldPrice gender isMysteryPlayer')
+      .limit(20)
+      .populate('playerId', 'name photo skills soldPrice gender isMysteryPlayer status soldTo')
       .populate('teamId', 'name logo');
-    if (!lastLog || !lastLog.playerId) return null;
+
+    for (const log of recentSoldLogs) {
+      const p = log.playerId;
+      const t = log.teamId;
+      if (
+        p &&
+        p.status === 'sold' &&
+        p.soldTo &&
+        t &&
+        p.soldTo.toString() === t._id.toString()
+      ) {
+        return {
+          player: p,
+          team: t,
+          teamName: t.name || '',
+          amount: log.amount ?? p.soldPrice ?? 0,
+          timestamp: log.timestamp,
+        };
+      }
+    }
+
+    // 3. Fallback: if historical sold logs were pruned or reset, query the latest sold player directly from Player
+    const latestSoldPlayer = await Player.findOne({ ...sportFilter, status: 'sold' })
+      .sort({ updatedAt: -1 })
+      .populate('soldTo', 'name logo');
+
+    if (!latestSoldPlayer || !latestSoldPlayer.soldTo) return null;
+
     return {
-      player: lastLog.playerId,
-      team: lastLog.teamId,
-      teamName: lastLog.teamId?.name || '',
-      amount: lastLog.amount,
-      timestamp: lastLog.timestamp,
+      player: latestSoldPlayer,
+      team: latestSoldPlayer.soldTo,
+      teamName: latestSoldPlayer.soldTo.name || '',
+      amount: latestSoldPlayer.soldPrice || 0,
+      timestamp: latestSoldPlayer.updatedAt,
     };
   } catch {
     return null;

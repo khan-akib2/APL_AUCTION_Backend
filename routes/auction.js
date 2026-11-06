@@ -16,27 +16,21 @@ function getSportFilter(req) {
     : { $or: [{ sport: 'cricket' }, { sport: { $exists: false } }, { sport: null }] };
 }
 
-// Strictly emit auction events to the sport-specific Socket.IO room and sport-tagged event,
-// plus legacy aliases so all client views (Admin, Captain, Audience) update synchronously.
+// Strictly emit auction events to the sport-specific Socket.IO room.
+// Avoid global un-roomed duplicate broadcasts which caused clients to receive 4x duplicate events.
 export function emitSportEvent(sport, eventName, payload) {
   const io = getIO();
   if (!io) return;
   const target = sport === 'football' ? 'football' : 'cricket';
   const data = { ...payload, sport: target };
 
-  // Room broadcasts
+  // Room broadcast strictly to sport rooms (Socket.IO deduplicates across room arguments for each client)
   io.to(`sport:${target}`).to(`auction:${target}`).emit(eventName, data);
-  // Sport-suffixed global broadcasts
-  io.emit(`${eventName}:${target}`, data);
-  // Global broadcast
-  io.emit(eventName, data);
 
-  // Cross-emit legacy aliases
+  // Cross-emit legacy aliases to sport rooms for backward compatibility without duplicating
   if (eventName === 'auction:start') {
     const legacy = { ...data, session: payload.session, player: payload.player };
     io.to(`sport:${target}`).to(`auction:${target}`).emit('playerNominated', legacy);
-    io.emit(`playerNominated:${target}`, legacy);
-    io.emit('playerNominated', legacy);
   } else if (eventName === 'auction:bid_update') {
     const legacy = {
       ...data,
@@ -45,12 +39,8 @@ export function emitSportEvent(sport, eventName, payload) {
       teamName: payload.bidderTeamName,
     };
     io.to(`sport:${target}`).to(`auction:${target}`).emit('bidPlaced', legacy);
-    io.emit(`bidPlaced:${target}`, legacy);
-    io.emit('bidPlaced', legacy);
   } else if (eventName === 'auction:finalizing') {
     io.to(`sport:${target}`).to(`auction:${target}`).emit('auctionFinalizing', data);
-    io.emit(`auctionFinalizing:${target}`, data);
-    io.emit('auctionFinalizing', data);
   } else if (eventName === 'auction:sold') {
     const legacy = {
       ...data,
@@ -62,18 +52,10 @@ export function emitSportEvent(sport, eventName, payload) {
     };
     io.to(`sport:${target}`).to(`auction:${target}`).emit('playerSold', legacy);
     io.to(`sport:${target}`).to(`auction:${target}`).emit('auctionFinalized', legacy);
-    io.emit(`playerSold:${target}`, legacy);
-    io.emit('playerSold', legacy);
-    io.emit(`auctionFinalized:${target}`, legacy);
-    io.emit('auctionFinalized', legacy);
   } else if (eventName === 'auction:unsold') {
     const legacy = { ...data, player: payload.player, session: payload.session };
     io.to(`sport:${target}`).to(`auction:${target}`).emit('playerUnsold', legacy);
     io.to(`sport:${target}`).to(`auction:${target}`).emit('auctionFinalized', legacy);
-    io.emit(`playerUnsold:${target}`, legacy);
-    io.emit('playerUnsold', legacy);
-    io.emit(`auctionFinalized:${target}`, legacy);
-    io.emit('auctionFinalized', legacy);
   }
 }
 

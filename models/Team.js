@@ -10,7 +10,7 @@ const TeamSchema = new mongoose.Schema({
   pointsSpent: { type: Number, default: 0 },
   playerCount: { type: Number, default: 0 },
   teamSize: { type: Number, default: 7 },
-  revealTokens: { type: Number, default: 1 },
+  revealTokens: { type: Number, default: 0 },
   isLocked: { type: Boolean, default: false },
   lockReason: { type: String, default: null },
   lockedAt: { type: Date, default: null },

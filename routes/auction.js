@@ -29,11 +29,9 @@ export function emitSportEvent(sport, eventName, payload) {
 }
 
 // Sanitize a player object for non-admin/non-owner views
-function sanitizePlayerForPublic(player, revealedTeamId = null) {
+function sanitizePlayerForPublic(player) {
   if (!player || !player.isMysteryPlayer) return player;
   const p = player.toObject ? player.toObject() : { ...player };
-  const isRevealed = revealedTeamId && p.revealedTo?.some(id => id.toString() === revealedTeamId.toString());
-  if (isRevealed) return p;
   return {
     ...p,
     name: '???',
@@ -417,12 +415,7 @@ router.get('/active', async (req, res) => {
     if (user?.role === 'admin') {
       sessionObj.playerId = sanitizePlayerForAdmin(session.playerId);
     } else {
-      let teamId = user?.teamId || null;
-      if (!teamId && user?.id) {
-        const u = await User.findById(user.id);
-        teamId = u?.teamId || null;
-      }
-      sessionObj.playerId = sanitizePlayerForPublic(session.playerId, teamId);
+      sessionObj.playerId = sanitizePlayerForPublic(session.playerId);
     }
     res.json({ session: sessionObj, lastSold });
   } catch (e) { res.status(500).json({ error: e.message }); }

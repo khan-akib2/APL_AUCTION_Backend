@@ -85,11 +85,12 @@ router.get('/', authMiddleware, async (req, res) => {
       return obj;
     });
 
-    if (req.user.role === 'captain' && req.user.teamId) {
+    if (req.user.role === 'captain') {
       result = result.map(obj => {
         if (!obj.isMysteryPlayer) return obj;
-        const isRevealed = obj.revealedTo?.some(id => id.toString() === req.user.teamId.toString());
-        if (isRevealed) return obj;
+        if (obj.status === 'sold' && obj.soldTo?.toString() === req.user.teamId?.toString()) {
+          return obj;
+        }
         return {
           ...obj,
           name: '???',

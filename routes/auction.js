@@ -355,30 +355,51 @@ export async function recoverPendingFinalizations() {
 
 async function fetchLastSold(sportFilter) {
   try {
-    const soldLogs = await AuctionLog.find({ ...sportFilter, action: 'sold' })
+    // 1. If no players are currently marked 'sold' in this sport, there is no active last sold result
+    const hasSoldPlayer = await Player.exists({ ...sportFilter, status: 'sold' });
+    if (!hasSoldPlayer) return null;
+
+    // 2. Find the most recent sold log for this sport where the player is currently still sold to that team
+    const recentSoldLogs = await AuctionLog.find({ ...sportFilter, action: 'sold' })
       .sort({ timestamp: -1 })
-      .limit(10)
+      .limit(20)
       .populate('playerId', 'name photo skills soldPrice gender isMysteryPlayer status soldTo')
       .populate('teamId', 'name logo');
 
-    for (const log of soldLogs) {
-      if (!log.playerId || !log.teamId) continue;
-      const playerSoldTo = log.playerId.soldTo
-        ? String(typeof log.playerId.soldTo === 'object' ? log.playerId.soldTo._id : log.playerId.soldTo)
-        : null;
-      const teamIdStr = String(log.teamId._id || log.teamId);
-      const isStillSold = log.playerId.status === 'sold' && playerSoldTo === teamIdStr;
-      if (isStillSold) {
+    for (const log of recentSoldLogs) {
+      const p = log.playerId;
+      const t = log.teamId;
+      if (
+        p &&
+        p.status === 'sold' &&
+        p.soldTo &&
+        t &&
+        p.soldTo.toString() === t._id.toString()
+      ) {
         return {
-          player: log.playerId,
-          team: log.teamId,
-          teamName: log.teamId?.name || '',
-          amount: log.amount || log.playerId.soldPrice || 0,
+          player: p,
+          team: t,
+          teamName: t.name || '',
+          amount: log.amount ?? p.soldPrice ?? 0,
           timestamp: log.timestamp,
         };
       }
     }
-    return null;
+
+    // 3. Fallback: if historical sold logs were pruned or reset, query the latest sold player directly from Player
+    const latestSoldPlayer = await Player.findOne({ ...sportFilter, status: 'sold' })
+      .sort({ updatedAt: -1 })
+      .populate('soldTo', 'name logo');
+
+    if (!latestSoldPlayer || !latestSoldPlayer.soldTo) return null;
+
+    return {
+      player: latestSoldPlayer,
+      team: latestSoldPlayer.soldTo,
+      teamName: latestSoldPlayer.soldTo.name || '',
+      amount: latestSoldPlayer.soldPrice || 0,
+      timestamp: latestSoldPlayer.updatedAt,
+    };
   } catch {
     return null;
   }

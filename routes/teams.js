@@ -203,6 +203,110 @@ router.post('/:id/add-token', authMiddleware, adminOnly, async (req, res) => {
   }
 });
 
+// POST /api/teams/resell-player — Captain or Admin resells the team's highest-priced player to the pool with 50% penalty
+router.post('/resell-player', authMiddleware, async (req, res) => {
+  try {
+    let teamId;
+    if (req.user.role === 'admin') {
+      teamId = req.body.teamId;
+    } else if (req.user.role === 'captain') {
+      const freshUser = await User.findById(req.user.id);
+      teamId = freshUser?.teamId || req.user.teamId;
+    }
+    if (!teamId) return res.status(400).json({ error: 'Team ID required' });
+
+    const team = await Team.findById(teamId);
+    if (!team) return res.status(404).json({ error: 'Team not found' });
+
+    const { playerId } = req.body;
+
+    // Get all players currently sold to this team
+    const teamPlayers = await Player.find({
+      status: 'sold',
+      soldTo: team._id,
+    });
+
+    if (!teamPlayers.length) {
+      return res.status(400).json({ error: 'No players in team squad to resell' });
+    }
+
+    // Determine highest sold price among squad members
+    const maxPrice = Math.max(...teamPlayers.map(p => p.soldPrice || 0));
+
+    let player;
+    if (playerId) {
+      player = teamPlayers.find(p => p._id.toString() === playerId.toString());
+      if (!player) {
+        return res.status(400).json({ error: 'Player does not belong to your team squad' });
+      }
+      if ((player.soldPrice || 0) < maxPrice) {
+        return res.status(400).json({
+          error: `Only your highest-bid player (${maxPrice} pts) can be resold to the pool`,
+        });
+      }
+    } else {
+      player = teamPlayers.find(p => (p.soldPrice || 0) === maxPrice) || teamPlayers[0];
+    }
+
+    const originalPrice = player.soldPrice || 0;
+    const refund = Math.floor(originalPrice / 2);
+    const penalty = originalPrice - refund;
+
+    // 1. Update Team: deduct player from squad, add 50% refund to budget
+    await Team.findByIdAndUpdate(team._id, {
+      $pull: { players: player._id },
+      $inc: { budget: refund, pointsSpent: -refund, playerCount: -1 },
+    });
+
+    // 2. Update Player: return to pool as 'resold'
+    await Player.findByIdAndUpdate(player._id, {
+      status: 'resold',
+      soldTo: null,
+      soldPrice: null,
+    });
+
+    // 3. Log event
+    await AuctionLog.create({
+      playerId: player._id,
+      teamId: team._id,
+      sport: team.sport || 'cricket',
+      action: 'resale_triggered',
+      amount: refund,
+      details: `${player.name} resold to pool by ${team.name} with 50% penalty (original: ${originalPrice} pts, refund: +${refund} pts, penalty: -${penalty} pts)`,
+    });
+
+    // 4. Emit socket events
+    const io = global._io;
+    if (io) {
+      io.emit('auction:resale', {
+        player,
+        team,
+        sport: team.sport || 'cricket',
+        refund,
+        penalty,
+      });
+      io.emit('teams:reset', {
+        sport: team.sport || 'cricket',
+        teamId: team._id.toString(),
+      });
+    }
+
+    const updatedTeam = await Team.findById(team._id);
+
+    res.json({
+      success: true,
+      player,
+      team: updatedTeam,
+      originalPrice,
+      refund,
+      penalty,
+      message: `${player.name} resold to pool! +${refund} pts refunded to purse (50% penalty: -${penalty} pts)`,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // POST /api/teams/:teamId/remove-player/:playerId
 router.post('/:teamId/remove-player/:playerId', authMiddleware, adminOnly, async (req, res) => {
   try {
@@ -215,7 +319,9 @@ router.post('/:teamId/remove-player/:playerId', authMiddleware, adminOnly, async
     if (player.soldTo?.toString() !== teamId)
       return res.status(400).json({ error: 'Player does not belong to this team' });
 
-    const refund = player.soldPrice || 0;
+    const originalPrice = player.soldPrice || 0;
+    const refund = Math.floor(originalPrice / 2);
+    const penalty = originalPrice - refund;
 
     await Team.findByIdAndUpdate(teamId, {
       $pull: { players: player._id },
@@ -224,12 +330,22 @@ router.post('/:teamId/remove-player/:playerId', authMiddleware, adminOnly, async
 
     await Player.findByIdAndUpdate(playerId, { status: 'resold', soldTo: null, soldPrice: null });
 
-    await AuctionLog.create({ playerId, teamId, sport: team.sport || 'cricket', action: 'resale_triggered', amount: refund });
+    await AuctionLog.create({
+      playerId,
+      teamId,
+      sport: team.sport || 'cricket',
+      action: 'resale_triggered',
+      amount: refund,
+      details: `${player.name} removed by admin and resold to pool with 50% penalty (original: ${originalPrice} pts, refund: +${refund} pts, penalty: -${penalty} pts)`,
+    });
 
     const io = global._io;
-    if (io) io.emit('auction:resale', { player, team, sport: team.sport });
+    if (io) {
+      io.emit('auction:resale', { player, team, sport: team.sport, refund, penalty });
+      io.emit('teams:reset', { sport: team.sport, teamId: team._id.toString() });
+    }
 
-    res.json({ success: true, refund });
+    res.json({ success: true, refund, penalty, originalPrice });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

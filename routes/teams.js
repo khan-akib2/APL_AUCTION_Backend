@@ -266,6 +266,17 @@ const handleCaptainResell = async (req, res) => {
       return res.status(400).json({ error: 'This player does not belong to your team squad' });
     }
 
+    // For captains, strictly enforce that ONLY their highest-point squad player can be resold
+    if (req.user.role === 'captain') {
+      const squadPlayers = await Player.find({ status: 'sold', soldTo: team._id });
+      const maxPrice = Math.max(...squadPlayers.map(p => p.soldPrice || 0), 0);
+      if ((player.soldPrice || 0) < maxPrice) {
+        return res.status(400).json({
+          error: `Only your highest-bid squad player (${maxPrice} pts) can be resold to the pool`,
+        });
+      }
+    }
+
     // Safety: ensure this player is not currently on the active auction block
     const activeSession = await AuctionSession.findOne({
       playerId: player._id,

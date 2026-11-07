@@ -58,7 +58,7 @@ router.get('/', async (req, res) => {
     const playerDocs = PLAYER_NAMES.slice(0, 56).map((name, i) => ({
       name,
       skills: [SKILLS[i % SKILLS.length], SKILLS[(i + 1) % SKILLS.length]],
-      basePrice: 20,
+      basePrice: 50,
       status: 'available',
       sport: 'cricket',
     }));

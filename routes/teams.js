@@ -238,6 +238,122 @@ router.post('/:teamId/remove-player/:playerId', authMiddleware, adminOnly, async
   }
 });
 
+// POST /api/teams/:teamId/add-player — Admin manually assigns a player to a team with a specified price
+router.post('/:teamId/add-player', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const { playerId, price } = req.body;
+
+    if (!playerId) {
+      return res.status(400).json({ error: 'Player ID is required' });
+    }
+
+    const team = await Team.findById(teamId);
+    if (!team) {
+      return res.status(404).json({ error: 'Team not found' });
+    }
+
+    // Check squad capacity
+    const currentSquadCount = await Player.countDocuments({ status: 'sold', soldTo: team._id });
+    const maxCapacity = team.teamSize || 7;
+    if (currentSquadCount >= maxCapacity) {
+      return res.status(400).json({ error: `Team squad is full (${maxCapacity}/${maxCapacity})` });
+    }
+
+    const player = await Player.findById(playerId);
+    if (!player) {
+      return res.status(404).json({ error: 'Player not found' });
+    }
+
+    // Ensure sport match
+    const playerSport = player.sport || 'cricket';
+    const teamSport = team.sport || 'cricket';
+    if (playerSport !== teamSport) {
+      return res.status(400).json({ error: `Sport mismatch: player is ${playerSport}, but team is ${teamSport}` });
+    }
+
+    // Ensure player is not already sold to another team
+    if (player.status === 'sold' && player.soldTo && player.soldTo.toString() !== team._id.toString()) {
+      return res.status(400).json({ error: 'Player is already sold to another team' });
+    }
+
+    // Safety: ensure player is not currently on active auction block
+    const activeSession = await AuctionSession.findOne({
+      playerId: player._id,
+      status: { $in: ['active', 'finalizing'] },
+    });
+    if (activeSession) {
+      return res.status(400).json({ error: 'Player is currently on the active bidding block' });
+    }
+
+    const finalPrice = Math.max(0, Number(price) !== undefined && !isNaN(Number(price)) ? Number(price) : (player.basePrice || 20));
+
+    // Check budget
+    if (team.budget < finalPrice) {
+      return res.status(400).json({ error: `Insufficient budget: team has ${team.budget} pts, but player costs ${finalPrice} pts` });
+    }
+
+    // Pull from any other team's players array if present
+    await Team.updateMany(
+      { _id: { $ne: team._id }, players: player._id },
+      { $pull: { players: player._id } }
+    );
+
+    // Update team
+    const updatedTeam = await Team.findByIdAndUpdate(
+      team._id,
+      {
+        $addToSet: { players: player._id },
+        $inc: { budget: -finalPrice, pointsSpent: finalPrice, playerCount: 1 },
+      },
+      { returnDocument: 'after' }
+    ).populate('players').populate('captainId', 'name email');
+
+    // Update player
+    const updatedPlayer = await Player.findByIdAndUpdate(
+      player._id,
+      {
+        status: 'sold',
+        soldTo: team._id,
+        soldPrice: finalPrice,
+      },
+      { returnDocument: 'after' }
+    );
+
+    // Audit log
+    await AuctionLog.create({
+      playerId: player._id,
+      teamId: team._id,
+      sport: team.sport || 'cricket',
+      action: 'sold',
+      amount: finalPrice,
+      details: `Admin manually added ${player.name} to ${team.name} for ${finalPrice} pts`,
+    });
+
+    // Notify sockets
+    const io = global._io;
+    if (io) {
+      io.emit('auction:sold', {
+        player: updatedPlayer,
+        team: updatedTeam,
+        teamName: team.name,
+        amount: finalPrice,
+        sport: team.sport,
+      });
+      io.emit('teams:reset', { sport: team.sport, teamId: team._id.toString() });
+    }
+
+    res.json({
+      success: true,
+      message: `${player.name} added to ${team.name} for ${finalPrice} pts`,
+      team: updatedTeam,
+      player: updatedPlayer,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // POST /api/teams/captain-resell & POST /api/teams/resell-player — Captain resells a player back to the auction pool to recover points
 const handleCaptainResell = async (req, res) => {
   try {

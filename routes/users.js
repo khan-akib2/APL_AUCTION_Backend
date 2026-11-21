@@ -109,11 +109,16 @@ router.put('/:id', authMiddleware, adminOnly, async (req, res) => {
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     if (sendEmail && password) {
+      let teamName = req.body.teamName || user.teamId?.name || '';
+      if (!teamName) {
+        const team = await Team.findOne({ captainId: user._id });
+        if (team) teamName = team.name;
+      }
       await sendCaptainCredentials({
         name: user.name,
         email: user.email,
         password,
-        teamName: user.teamId?.name || '',
+        teamName,
         sport: user.sport || 'cricket',
       });
     }

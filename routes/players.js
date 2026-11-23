@@ -43,9 +43,30 @@ router.get('/public', async (req, res) => {
     const sportFilter = getSportFilter(req);
     const players = await Player.find(sportFilter)
       .populate('soldTo', 'name')
-      .select('name photo skills basePrice status soldTo soldPrice sport')
+      .select('name photo skills basePrice status soldTo soldPrice sport isMysteryPlayer mysteryConfig')
       .sort({ name: 1 });
-    res.json({ players });
+
+    const masked = players.map(pl => {
+      const p = pl.toObject();
+      if (!p.isMysteryPlayer || p.status === 'sold') {
+        delete p.mysteryConfig;
+        delete p.revealedTo;
+        return p;
+      }
+      const blurredPhoto = p.mysteryConfig?.blurredPhoto || '';
+      const roleHint = p.mysteryConfig?.roleHint;
+      delete p.mysteryConfig;
+      delete p.revealedTo;
+      return {
+        ...p,
+        name: '???',
+        photo: blurredPhoto,
+        skills: roleHint ? [roleHint] : [],
+        _isMasked: true,
+      };
+    });
+
+    res.json({ players: masked });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -88,14 +109,22 @@ router.get('/', authMiddleware, async (req, res) => {
     if (req.user.role === 'captain') {
       result = result.map(obj => {
         if (!obj.isMysteryPlayer) return obj;
-        if (obj.status === 'sold' && obj.soldTo?.toString() === req.user.teamId?.toString()) {
+        const soldToId = obj.soldTo?._id ? obj.soldTo._id.toString() : obj.soldTo?.toString();
+        const myTeamId = req.user.teamId?.toString();
+        if (obj.status === 'sold' && soldToId && myTeamId && soldToId === myTeamId) {
+          delete obj.mysteryConfig;
+          delete obj.revealedTo;
           return obj;
         }
+        const blurredPhoto = obj.mysteryConfig?.blurredPhoto || '';
+        const roleHint = obj.mysteryConfig?.roleHint;
+        delete obj.mysteryConfig;
+        delete obj.revealedTo;
         return {
           ...obj,
           name: '???',
-          photo: obj.mysteryConfig?.blurredPhoto || '',
-          skills: obj.mysteryConfig?.roleHint ? [obj.mysteryConfig.roleHint] : [],
+          photo: blurredPhoto,
+          skills: roleHint ? [roleHint] : [],
           _isMasked: true,
         };
       });

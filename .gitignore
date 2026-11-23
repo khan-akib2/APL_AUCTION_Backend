@@ -5,6 +5,8 @@ node_modules/
 .env
 .env.local
 .env.*.local
+data-backup.json
+*.backup.json
 
 # Uploaded files
 uploads/*

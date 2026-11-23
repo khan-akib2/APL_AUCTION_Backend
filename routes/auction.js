@@ -32,11 +32,15 @@ export function emitSportEvent(sport, eventName, payload) {
 function sanitizePlayerForPublic(player) {
   if (!player || !player.isMysteryPlayer) return player;
   const p = player.toObject ? player.toObject() : { ...player };
+  const blurredPhoto = p.mysteryConfig?.blurredPhoto || '';
+  const roleHint = p.mysteryConfig?.roleHint;
+  delete p.mysteryConfig;
+  delete p.revealedTo;
   return {
     ...p,
     name: '???',
-    photo: p.mysteryConfig?.blurredPhoto || '',
-    skills: p.mysteryConfig?.roleHint ? [p.mysteryConfig.roleHint] : [],
+    photo: blurredPhoto,
+    skills: roleHint ? [roleHint] : [],
     _isMasked: true,
   };
 }

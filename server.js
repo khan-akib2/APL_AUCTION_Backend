@@ -33,12 +33,17 @@ const httpServer = http.createServer(app);
 
 // CORS — allow frontend origin
 const allowedOrigins = [
-  process.env.FRONTEND_URL || 'http://localhost:3000',
+  process.env.FRONTEND_URL,
+  'https://apl.nexcoreinstitute.org',
   'http://localhost:3000',
+  'http://localhost:3001',
+  'http://localhost:3002',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:3001',
+  'http://127.0.0.1:3002',
   'https://apl-auction-psi.vercel.app',
   'https://apl-auction-frontend.vercel.app',
-  /\.vercel\.app$/,
-];
+].filter(Boolean);
 
 app.use(cors({
   origin: (origin, cb) => {

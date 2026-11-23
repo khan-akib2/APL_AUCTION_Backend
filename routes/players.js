@@ -170,6 +170,54 @@ router.post('/:id/reveal', authMiddleware, async (req, res) => {
   }
 });
 
+// POST /api/players/bulk — bulk insert players (from CSV or multiple selection)
+router.post('/bulk', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const { players = [], sport = 'cricket' } = req.body;
+    if (!Array.isArray(players) || !players.length) {
+      return res.status(400).json({ error: 'No players provided' });
+    }
+
+    const isFootball = sport === 'football';
+    const docs = players.map(p => {
+      let skills = p.skills || [];
+      if (isFootball || p.sport === 'football') {
+        skills = normalizeFootballSkills(skills);
+      }
+      return {
+        name: (p.name || '').trim(),
+        gender: p.gender || 'Male',
+        basePrice: Number(p.basePrice) || (isFootball ? 50 : 20),
+        status: p.status || 'available',
+        sport: isFootball ? 'football' : (p.sport || 'cricket'),
+        skills,
+        photo: p.photo || '',
+        isMysteryPlayer: !!p.isMysteryPlayer,
+        mysteryConfig: p.mysteryConfig || {},
+      };
+    }).filter(p => p.name);
+
+    if (!docs.length) {
+      return res.status(400).json({ error: 'No valid players found in data' });
+    }
+
+    const inserted = await Player.insertMany(docs);
+
+    const io = global._io;
+    if (io) {
+      io.emit('players:updated', { sport: isFootball ? 'football' : 'cricket' });
+    }
+
+    res.status(201).json({
+      success: true,
+      count: inserted.length,
+      players: inserted,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // POST /api/players
 router.post('/', authMiddleware, adminOnly, async (req, res) => {
   try {

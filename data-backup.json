@@ -263,6 +263,58 @@
       "createdAt": "2026-11-05T09:23:53.128Z",
       "updatedAt": "2026-11-06T08:00:26.756Z",
       "__v": 0
+    },
+    {
+      "_id": "6b03bbfc37766285e91345fc",
+      "name": "Captain Red Dragons FC",
+      "email": "fbcaptain1@nit.com",
+      "passwordHash": "$2b$10$enhSyl5VGDREjtOT/yQTZOGeUNL68etOtkvp8ChCpZvJGFwq.QerG",
+      "role": "captain",
+      "teamId": "6b03bbfc37766285e91345fd",
+      "sport": "football",
+      "activeToken": null,
+      "createdAt": "2026-11-23T04:07:24.276Z",
+      "updatedAt": "2026-11-23T04:07:24.285Z",
+      "__v": 0
+    },
+    {
+      "_id": "6b03bbfc37766285e91345fe",
+      "name": "Captain Blue Sharks FC",
+      "email": "fbcaptain2@nit.com",
+      "passwordHash": "$2b$10$nKO/Zmzz7Mo.RgOOCv6mt.ZyXW37gFix.wO/kQA8JkXrhCyGeTq4G",
+      "role": "captain",
+      "teamId": "6b03bbfc37766285e91345ff",
+      "sport": "football",
+      "activeToken": null,
+      "createdAt": "2026-11-23T04:07:24.406Z",
+      "updatedAt": "2026-11-23T04:07:24.411Z",
+      "__v": 0
+    },
+    {
+      "_id": "6b03bbfc37766285e9134600",
+      "name": "Captain Golden Tigers",
+      "email": "fbcaptain3@nit.com",
+      "passwordHash": "$2b$10$Y6Fwr6A3IU0bi5SfJJVM9eehLi9kWeZWCbqTOH10wkyrikCuIQs52",
+      "role": "captain",
+      "teamId": "6b03bbfc37766285e9134601",
+      "sport": "football",
+      "activeToken": null,
+      "createdAt": "2026-11-23T04:07:24.500Z",
+      "updatedAt": "2026-11-23T04:07:24.503Z",
+      "__v": 0
+    },
+    {
+      "_id": "6b03bbfc37766285e9134602",
+      "name": "Captain Silver Cobras",
+      "email": "fbcaptain4@nit.com",
+      "passwordHash": "$2b$10$1V2WOerVD7rzUxKH1Ph4q.5I.IvDA34OoIJRISeDGQCER18hMV60u",
+      "role": "captain",
+      "teamId": "6b03bbfc37766285e9134603",
+      "sport": "football",
+      "activeToken": null,
+      "createdAt": "2026-11-23T04:07:24.596Z",
+      "updatedAt": "2026-11-23T04:07:24.600Z",
+      "__v": 0
     }
   ],
   "teams": [
@@ -499,6 +551,86 @@
       "isLocked": false,
       "lockReason": null,
       "lockedAt": null
+    },
+    {
+      "_id": "6b03bbfc37766285e91345fd",
+      "name": "Red Dragons FC",
+      "logo": "",
+      "captainId": "6b03bbfc37766285e91345fc",
+      "players": [],
+      "budget": 1000,
+      "initialBudget": 1000,
+      "pointsSpent": 0,
+      "playerCount": 0,
+      "teamSize": 7,
+      "revealTokens": 0,
+      "isLocked": false,
+      "lockReason": null,
+      "lockedAt": null,
+      "sport": "football",
+      "createdAt": "2026-11-23T04:07:24.282Z",
+      "updatedAt": "2026-11-23T04:07:24.282Z",
+      "__v": 0
+    },
+    {
+      "_id": "6b03bbfc37766285e91345ff",
+      "name": "Blue Sharks FC",
+      "logo": "",
+      "captainId": "6b03bbfc37766285e91345fe",
+      "players": [],
+      "budget": 1000,
+      "initialBudget": 1000,
+      "pointsSpent": 0,
+      "playerCount": 0,
+      "teamSize": 7,
+      "revealTokens": 0,
+      "isLocked": false,
+      "lockReason": null,
+      "lockedAt": null,
+      "sport": "football",
+      "createdAt": "2026-11-23T04:07:24.409Z",
+      "updatedAt": "2026-11-23T04:07:24.409Z",
+      "__v": 0
+    },
+    {
+      "_id": "6b03bbfc37766285e9134601",
+      "name": "Golden Tigers",
+      "logo": "",
+      "captainId": "6b03bbfc37766285e9134600",
+      "players": [],
+      "budget": 1000,
+      "initialBudget": 1000,
+      "pointsSpent": 0,
+      "playerCount": 0,
+      "teamSize": 7,
+      "revealTokens": 0,
+      "isLocked": false,
+      "lockReason": null,
+      "lockedAt": null,
+      "sport": "football",
+      "createdAt": "2026-11-23T04:07:24.502Z",
+      "updatedAt": "2026-11-23T04:07:24.502Z",
+      "__v": 0
+    },
+    {
+      "_id": "6b03bbfc37766285e9134603",
+      "name": "Silver Cobras",
+      "logo": "",
+      "captainId": "6b03bbfc37766285e9134602",
+      "players": [],
+      "budget": 1000,
+      "initialBudget": 1000,
+      "pointsSpent": 0,
+      "playerCount": 0,
+      "teamSize": 7,
+      "revealTokens": 0,
+      "isLocked": false,
+      "lockReason": null,
+      "lockedAt": null,
+      "sport": "football",
+      "createdAt": "2026-11-23T04:07:24.598Z",
+      "updatedAt": "2026-11-23T04:07:24.598Z",
+      "__v": 0
     }
   ],
   "players": [
@@ -2937,6 +3069,470 @@
       "revealedTo": [],
       "createdAt": "2026-11-05T12:32:39.206Z",
       "updatedAt": "2026-11-05T12:32:39.206Z",
+      "__v": 0
+    },
+    {
+      "_id": "6b03bbfc37766285e9134604",
+      "name": "Leo Martinez",
+      "photo": "",
+      "skills": [
+        "Forward"
+      ],
+      "gender": "Male",
+      "basePrice": 50,
+      "status": "available",
+      "soldTo": null,
+      "soldPrice": null,
+      "sport": "football",
+      "isMysteryPlayer": false,
+      "revealedTo": [],
+      "mysteryConfig": {
+        "roleHint": "",
+        "ratingRange": "",
+        "formStatus": "",
+        "region": "",
+        "isStar": false,
+        "isBust": false,
+        "deceptionLevel": "low",
+        "blurredPhoto": ""
+      },
+      "createdAt": "2026-11-23T04:07:24.605Z",
+      "updatedAt": "2026-11-23T04:07:24.605Z",
+      "__v": 0
+    },
+    {
+      "_id": "6b03bbfc37766285e9134605",
+      "name": "Kylian Vance",
+      "photo": "",
+      "skills": [
+        "Midfielder"
+      ],
+      "gender": "Male",
+      "basePrice": 50,
+      "status": "available",
+      "soldTo": null,
+      "soldPrice": null,
+      "sport": "football",
+      "isMysteryPlayer": false,
+      "revealedTo": [],
+      "mysteryConfig": {
+        "roleHint": "",
+        "ratingRange": "",
+        "formStatus": "",
+        "region": "",
+        "isStar": false,
+        "isBust": false,
+        "deceptionLevel": "low",
+        "blurredPhoto": ""
+      },
+      "createdAt": "2026-11-23T04:07:24.609Z",
+      "updatedAt": "2026-11-23T04:07:24.609Z",
+      "__v": 0
+    },
+    {
+      "_id": "6b03bbfc37766285e9134606",
+      "name": "Erling Stone",
+      "photo": "",
+      "skills": [
+        "Defender"
+      ],
+      "gender": "Male",
+      "basePrice": 50,
+      "status": "available",
+      "soldTo": null,
+      "soldPrice": null,
+      "sport": "football",
+      "isMysteryPlayer": false,
+      "revealedTo": [],
+      "mysteryConfig": {
+        "roleHint": "",
+        "ratingRange": "",
+        "formStatus": "",
+        "region": "",
+        "isStar": false,
+        "isBust": false,
+        "deceptionLevel": "low",
+        "blurredPhoto": ""
+      },
+      "createdAt": "2026-11-23T04:07:24.612Z",
+      "updatedAt": "2026-11-23T04:07:24.612Z",
+      "__v": 0
+    },
+    {
+      "_id": "6b03bbfc37766285e9134607",
+      "name": "Kevin De Ross",
+      "photo": "",
+      "skills": [
+        "Goalkeeper"
+      ],
+      "gender": "Male",
+      "basePrice": 50,
+      "status": "available",
+      "soldTo": null,
+      "soldPrice": null,
+      "sport": "football",
+      "isMysteryPlayer": false,
+      "revealedTo": [],
+      "mysteryConfig": {
+        "roleHint": "",
+        "ratingRange": "",
+        "formStatus": "",
+        "region": "",
+        "isStar": false,
+        "isBust": false,
+        "deceptionLevel": "low",
+        "blurredPhoto": ""
+      },
+      "createdAt": "2026-11-23T04:07:24.616Z",
+      "updatedAt": "2026-11-23T04:07:24.616Z",
+      "__v": 0
+    },
+    {
+      "_id": "6b03bbfc37766285e9134608",
+      "name": "Luka Modric Jr",
+      "photo": "",
+      "skills": [
+        "Forward"
+      ],
+      "gender": "Male",
+      "basePrice": 50,
+      "status": "available",
+      "soldTo": null,
+      "soldPrice": null,
+      "sport": "football",
+      "isMysteryPlayer": false,
+      "revealedTo": [],
+      "mysteryConfig": {
+        "roleHint": "",
+        "ratingRange": "",
+        "formStatus": "",
+        "region": "",
+        "isStar": false,
+        "isBust": false,
+        "deceptionLevel": "low",
+        "blurredPhoto": ""
+      },
+      "createdAt": "2026-11-23T04:07:24.618Z",
+      "updatedAt": "2026-11-23T04:07:24.618Z",
+      "__v": 0
+    },
+    {
+      "_id": "6b03bbfc37766285e9134609",
+      "name": "Virgil Van Cole",
+      "photo": "",
+      "skills": [
+        "Midfielder"
+      ],
+      "gender": "Male",
+      "basePrice": 50,
+      "status": "available",
+      "soldTo": null,
+      "soldPrice": null,
+      "sport": "football",
+      "isMysteryPlayer": false,
+      "revealedTo": [],
+      "mysteryConfig": {
+        "roleHint": "",
+        "ratingRange": "",
+        "formStatus": "",
+        "region": "",
+        "isStar": false,
+        "isBust": false,
+        "deceptionLevel": "low",
+        "blurredPhoto": ""
+      },
+      "createdAt": "2026-11-23T04:07:24.621Z",
+      "updatedAt": "2026-11-23T04:07:24.621Z",
+      "__v": 0
+    },
+    {
+      "_id": "6b03bbfc37766285e913460a",
+      "name": "Thibaut Courtois Jr",
+      "photo": "",
+      "skills": [
+        "Defender"
+      ],
+      "gender": "Male",
+      "basePrice": 50,
+      "status": "available",
+      "soldTo": null,
+      "soldPrice": null,
+      "sport": "football",
+      "isMysteryPlayer": false,
+      "revealedTo": [],
+      "mysteryConfig": {
+        "roleHint": "",
+        "ratingRange": "",
+        "formStatus": "",
+        "region": "",
+        "isStar": false,
+        "isBust": false,
+        "deceptionLevel": "low",
+        "blurredPhoto": ""
+      },
+      "createdAt": "2026-11-23T04:07:24.624Z",
+      "updatedAt": "2026-11-23T04:07:24.624Z",
+      "__v": 0
+    },
+    {
+      "_id": "6b03bbfc37766285e913460b",
+      "name": "Neymar Santos",
+      "photo": "",
+      "skills": [
+        "Goalkeeper"
+      ],
+      "gender": "Male",
+      "basePrice": 50,
+      "status": "available",
+      "soldTo": null,
+      "soldPrice": null,
+      "sport": "football",
+      "isMysteryPlayer": false,
+      "revealedTo": [],
+      "mysteryConfig": {
+        "roleHint": "",
+        "ratingRange": "",
+        "formStatus": "",
+        "region": "",
+        "isStar": false,
+        "isBust": false,
+        "deceptionLevel": "low",
+        "blurredPhoto": ""
+      },
+      "createdAt": "2026-11-23T04:07:24.626Z",
+      "updatedAt": "2026-11-23T04:07:24.626Z",
+      "__v": 0
+    },
+    {
+      "_id": "6b03bbfc37766285e913460c",
+      "name": "Vinicius Sterling",
+      "photo": "",
+      "skills": [
+        "Forward"
+      ],
+      "gender": "Male",
+      "basePrice": 50,
+      "status": "available",
+      "soldTo": null,
+      "soldPrice": null,
+      "sport": "football",
+      "isMysteryPlayer": false,
+      "revealedTo": [],
+      "mysteryConfig": {
+        "roleHint": "",
+        "ratingRange": "",
+        "formStatus": "",
+        "region": "",
+        "isStar": false,
+        "isBust": false,
+        "deceptionLevel": "low",
+        "blurredPhoto": ""
+      },
+      "createdAt": "2026-11-23T04:07:24.631Z",
+      "updatedAt": "2026-11-23T04:07:24.631Z",
+      "__v": 0
+    },
+    {
+      "_id": "6b03bbfc37766285e913460d",
+      "name": "Jude Bellingham Jr",
+      "photo": "",
+      "skills": [
+        "Midfielder"
+      ],
+      "gender": "Male",
+      "basePrice": 50,
+      "status": "available",
+      "soldTo": null,
+      "soldPrice": null,
+      "sport": "football",
+      "isMysteryPlayer": false,
+      "revealedTo": [],
+      "mysteryConfig": {
+        "roleHint": "",
+        "ratingRange": "",
+        "formStatus": "",
+        "region": "",
+        "isStar": false,
+        "isBust": false,
+        "deceptionLevel": "low",
+        "blurredPhoto": ""
+      },
+      "createdAt": "2026-11-23T04:07:24.636Z",
+      "updatedAt": "2026-11-23T04:07:24.636Z",
+      "__v": 0
+    },
+    {
+      "_id": "6b03bbfc37766285e913460e",
+      "name": "Bruno Silva",
+      "photo": "",
+      "skills": [
+        "Defender"
+      ],
+      "gender": "Male",
+      "basePrice": 50,
+      "status": "available",
+      "soldTo": null,
+      "soldPrice": null,
+      "sport": "football",
+      "isMysteryPlayer": false,
+      "revealedTo": [],
+      "mysteryConfig": {
+        "roleHint": "",
+        "ratingRange": "",
+        "formStatus": "",
+        "region": "",
+        "isStar": false,
+        "isBust": false,
+        "deceptionLevel": "low",
+        "blurredPhoto": ""
+      },
+      "createdAt": "2026-11-23T04:07:24.640Z",
+      "updatedAt": "2026-11-23T04:07:24.640Z",
+      "__v": 0
+    },
+    {
+      "_id": "6b03bbfc37766285e913460f",
+      "name": "Bukayo Saka Jr",
+      "photo": "",
+      "skills": [
+        "Goalkeeper"
+      ],
+      "gender": "Male",
+      "basePrice": 50,
+      "status": "available",
+      "soldTo": null,
+      "soldPrice": null,
+      "sport": "football",
+      "isMysteryPlayer": false,
+      "revealedTo": [],
+      "mysteryConfig": {
+        "roleHint": "",
+        "ratingRange": "",
+        "formStatus": "",
+        "region": "",
+        "isStar": false,
+        "isBust": false,
+        "deceptionLevel": "low",
+        "blurredPhoto": ""
+      },
+      "createdAt": "2026-11-23T04:07:24.642Z",
+      "updatedAt": "2026-11-23T04:07:24.642Z",
+      "__v": 0
+    },
+    {
+      "_id": "6b03bbfc37766285e9134610",
+      "name": "Rodri Hernandez",
+      "photo": "",
+      "skills": [
+        "Forward"
+      ],
+      "gender": "Male",
+      "basePrice": 50,
+      "status": "available",
+      "soldTo": null,
+      "soldPrice": null,
+      "sport": "football",
+      "isMysteryPlayer": false,
+      "revealedTo": [],
+      "mysteryConfig": {
+        "roleHint": "",
+        "ratingRange": "",
+        "formStatus": "",
+        "region": "",
+        "isStar": false,
+        "isBust": false,
+        "deceptionLevel": "low",
+        "blurredPhoto": ""
+      },
+      "createdAt": "2026-11-23T04:07:24.646Z",
+      "updatedAt": "2026-11-23T04:07:24.646Z",
+      "__v": 0
+    },
+    {
+      "_id": "6b03bbfc37766285e9134611",
+      "name": "Alisson Becker Jr",
+      "photo": "",
+      "skills": [
+        "Midfielder"
+      ],
+      "gender": "Male",
+      "basePrice": 50,
+      "status": "available",
+      "soldTo": null,
+      "soldPrice": null,
+      "sport": "football",
+      "isMysteryPlayer": false,
+      "revealedTo": [],
+      "mysteryConfig": {
+        "roleHint": "",
+        "ratingRange": "",
+        "formStatus": "",
+        "region": "",
+        "isStar": false,
+        "isBust": false,
+        "deceptionLevel": "low",
+        "blurredPhoto": ""
+      },
+      "createdAt": "2026-11-23T04:07:24.649Z",
+      "updatedAt": "2026-11-23T04:07:24.649Z",
+      "__v": 0
+    },
+    {
+      "_id": "6b03bbfc37766285e9134612",
+      "name": "Declan Rice Jr",
+      "photo": "",
+      "skills": [
+        "Defender"
+      ],
+      "gender": "Male",
+      "basePrice": 50,
+      "status": "available",
+      "soldTo": null,
+      "soldPrice": null,
+      "sport": "football",
+      "isMysteryPlayer": false,
+      "revealedTo": [],
+      "mysteryConfig": {
+        "roleHint": "",
+        "ratingRange": "",
+        "formStatus": "",
+        "region": "",
+        "isStar": false,
+        "isBust": false,
+        "deceptionLevel": "low",
+        "blurredPhoto": ""
+      },
+      "createdAt": "2026-11-23T04:07:24.653Z",
+      "updatedAt": "2026-11-23T04:07:24.653Z",
+      "__v": 0
+    },
+    {
+      "_id": "6b03bbfc37766285e9134613",
+      "name": "Son Heung-min Jr",
+      "photo": "",
+      "skills": [
+        "Goalkeeper"
+      ],
+      "gender": "Male",
+      "basePrice": 50,
+      "status": "available",
+      "soldTo": null,
+      "soldPrice": null,
+      "sport": "football",
+      "isMysteryPlayer": false,
+      "revealedTo": [],
+      "mysteryConfig": {
+        "roleHint": "",
+        "ratingRange": "",
+        "formStatus": "",
+        "region": "",
+        "isStar": false,
+        "isBust": false,
+        "deceptionLevel": "low",
+        "blurredPhoto": ""
+      },
+      "createdAt": "2026-11-23T04:07:24.655Z",
+      "updatedAt": "2026-11-23T04:07:24.655Z",
       "__v": 0
     }
   ],

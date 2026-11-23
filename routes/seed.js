@@ -128,46 +128,4 @@ router.get('/football', async (req, res) => {
   }
 });
 
-// GET or POST /api/seed/restore?secret=<SEED_SECRET> — Restores all 84 players, teams, users from data-backup.json
-router.all('/restore', async (req, res) => {
-  const secret = req.query.secret || req.body?.secret;
-  if (!process.env.SEED_SECRET || secret !== process.env.SEED_SECRET) {
-    return res.status(403).json({ error: 'Forbidden: invalid or missing SEED_SECRET' });
-  }
-
-  try {
-    const { restoreData } = await import('../scripts/restore-data.js');
-    const result = await restoreData();
-    res.json({
-      success: true,
-      message: 'All auction data (players, teams, users, logs) successfully restored from backup!',
-      restored: result,
-    });
-  } catch (e) {
-    console.error('RESTORE ERROR:', e);
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// GET or POST /api/seed/backup?secret=<SEED_SECRET> — Exports current database to data-backup.json
-router.all('/backup', async (req, res) => {
-  const secret = req.query.secret || req.body?.secret;
-  if (!process.env.SEED_SECRET || secret !== process.env.SEED_SECRET) {
-    return res.status(403).json({ error: 'Forbidden: invalid or missing SEED_SECRET' });
-  }
-
-  try {
-    const { exportData } = await import('../scripts/export-data.js');
-    const result = await exportData();
-    res.json({
-      success: true,
-      message: 'Database backup created successfully!',
-      exported: result,
-    });
-  } catch (e) {
-    console.error('BACKUP ERROR:', e);
-    res.status(500).json({ error: e.message });
-  }
-});
-
 export default router;

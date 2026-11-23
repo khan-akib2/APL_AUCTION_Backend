@@ -19,11 +19,9 @@ import { connectDB } from './lib/mongodb.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Validate required environment variables before starting
-const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI;
-if (!mongoUri || !process.env.JWT_SECRET) {
-  const missing = [];
-  if (!mongoUri) missing.push('MONGODB_URI (or MONGO_URI)');
-  if (!process.env.JWT_SECRET) missing.push('JWT_SECRET');
+const REQUIRED_ENV = ['MONGODB_URI', 'JWT_SECRET'];
+const missing = REQUIRED_ENV.filter(k => !process.env[k]);
+if (missing.length) {
   console.error(`Missing required environment variables: ${missing.join(', ')}`);
   process.exit(1);
 }

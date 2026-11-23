@@ -9,6 +9,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
+    "backup-data": "node scripts/export-data.js",
+    "restore-data": "node scripts/restore-data.js",
     "lint": "eslint"
   },
   "dependencies": {

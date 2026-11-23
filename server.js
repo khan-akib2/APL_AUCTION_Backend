@@ -70,6 +70,7 @@ const io = new Server(httpServer, {
     methods: ['GET', 'POST'],
     credentials: true,
   },
+  maxHttpBufferSize: 1e7,
   transports: ['polling', 'websocket'],
   pingTimeout: 60000,
   pingInterval: 25000,
